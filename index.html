@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edge Finder</title>
+<style>
+  :root{--bg:#0f1218;--card:#181d26;--line:#262d3a;--text:#e7ebf2;--mut:#8a94a6;--acc:#4f8cff;--good:#2fbf71;--warn:#f0b429;--bad:#ef5b5b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding-bottom:40px}
+  header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 14px 0}
+  .top{display:flex;align-items:center;gap:10px}
+  h1{font-size:20px;margin:0;flex:1}
+  .meta{color:var(--mut);font-size:12px;margin:4px 0 8px}
+  button{font:inherit;border:0;border-radius:10px;padding:9px 14px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
+  button.sec{background:var(--card);color:var(--text);border:1px solid var(--line)}
+  button:disabled{opacity:.5}
+  nav{display:flex;gap:4px;overflow-x:auto}
+  nav a{padding:10px 12px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap;font-weight:600}
+  nav a.on{color:var(--acc);border-color:var(--acc)}
+  main{padding:12px 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pill{display:inline-block;border-radius:999px;padding:3px 9px;font-size:13px;font-weight:700}
+  .pg{background:rgba(47,191,113,.15);color:var(--good)}
+  .pw{background:rgba(240,180,41,.15);color:var(--warn)}
+  .pl{background:rgba(239,91,91,.15);color:var(--bad)}
+  .big{font-size:17px;font-weight:700}
+  .mut{color:var(--mut);font-size:13px}
+  .price{font-weight:700;color:var(--acc)}
+  .lnk{color:var(--acc);font-size:13px;text-decoration:none;font-weight:600}
+  .grow{flex:1}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--card)}
+  td.best{color:var(--good);font-weight:700}
+  .scroll{overflow-x:auto}
+  label{display:block;margin:10px 0 4px;font-weight:600}
+  input[type=text],input[type=password],input[type=number],select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0b0e13;color:var(--text);font:inherit}
+  .chk{display:flex;align-items:center;gap:8px;margin:6px 0;font-weight:400}
+  .chk input{width:18px;height:18px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px}
+  .err{background:rgba(239,91,91,.12);border:1px solid rgba(239,91,91,.4);color:#ffb3b3;border-radius:10px;padding:10px;margin-bottom:10px;font-size:13px}
+  .empty{color:var(--mut);text-align:center;padding:30px 10px}
+  .filters{display:flex;gap:8px;margin-bottom:10px}
+  .filters select{flex:1}
+  .stake td,.stake th{text-align:left}
+  hr{border:0;border-top:1px solid var(--line);margin:10px 0}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>Edge Finder</h1>
+    <button id="refresh">Refresh</button>
+  </div>
+  <div class="meta" id="meta">No data yet. Add your API key in Settings, then tap Refresh.</div>
+  <nav id="tabs">
+    <a href="#ev" data-t="ev" class="on">+EV</a>
+    <a href="#arbs" data-t="arbs">Arbs</a>
+    <a href="#middles" data-t="middles">Middles</a>
+    <a href="#odds" data-t="odds">Odds</a>
+    <a href="#setup" data-t="setup">Settings</a>
+  </nav>
+</header>
+<main>
+  <div id="errors"></div>
+  <section id="v-ev"></section>
+  <section id="v-arbs" hidden></section>
+  <section id="v-middles" hidden></section>
+  <section id="v-odds" hidden></section>
+  <section id="v-setup" hidden></section>
+</main>
+
+<script>
+/* ---------- config ---------- */
+const BOOKS = [
+  {key:'draftkings',     name:'DraftKings', short:'DK'},
+  {key:'fanduel',        name:'FanDuel',    short:'FD'},
+  {key:'betmgm',         name:'BetMGM',     short:'MGM'},
+  {key:'williamhill_us', name:'Caesars',    short:'CZR'},
+  {key:'fanatics',       name:'Fanatics',   short:'FAN'},
+  {key:'hardrockbet',    name:'Hard Rock',  short:'HR'},
+  {key:'novig',          name:'Novig',      short:'NOV'},
+  {key:'kalshi',         name:'Kalshi',     short:'KAL'},
+  {key:'polymarket',     name:'Polymarket', short:'PM'},
+];
+const SHARP = {key:'pinnacle', name:'Pinnacle', short:'PIN'}; // fair-price reference only
+const SPORTS = [
+  {key:'americanfootball_nfl',   name:'NFL'},
+  {key:'americanfootball_ncaaf', name:'NCAAF'},
+  {key:'basketball_nba',         name:'NBA'},
+  {key:'basketball_ncaab',       name:'NCAAB'},
+  {key:'icehockey_nhl',          name:'NHL'},
+  {key:'baseball_mlb',           name:'MLB'},
+];
+const MARKETS = [{key:'h2h',name:'Moneyline'},{key:'spreads',name:'Spreads'},{key:'totals',name:'Totals'}];
+const bookName = k => (BOOKS.find(b=>b.key===k)||(k===SHARP.key?SHARP:{name:k})).name;
+const bookShort = k => (BOOKS.find(b=>b.key===k)||(k===SHARP.key?SHARP:{short:k})).short;
+
+/* ---------- settings (saved in this browser only) ---------- */
+const DEFAULTS = {
+  apiKey:'', sports:['americanfootball_nfl','americanfootball_ncaaf','basketball_nba','basketball_ncaab','icehockey_nhl'],
+  books:BOOKS.map(b=>b.key), markets:['h2h','spreads','totals'],
+  minEV:1, bankroll:100, kellyFrac:0.25, kalshiFee:true, fees:{novig:0,polymarket:0}, includeLive:false,
+  autoSec:0, maxAgeMin:15, middleMaxLoss:2, alerts:true, hoursPerDay:8
+};
+function load(){ try{ return Object.assign({},DEFAULTS,JSON.parse(localStorage.getItem('edgefinder')||'{}')); }catch(e){ return {...DEFAULTS}; } }
+function save(){ try{ localStorage.setItem('edgefinder',JSON.stringify(S)); }catch(e){} }
+let S = load();
+let EVENTS = [];           // raw events from the API
+let lastInfo = null;       // {time, remaining, used, demo}
+
+/* ---------- odds math ---------- */
+const amToDec = a => a>0 ? 1+a/100 : 1+100/(-a);
+const decToAm = d => d>=2 ? '+'+Math.round((d-1)*100) : String(Math.round(-100/(d-1)));
+const fmtAm = a => (a>0?'+':'')+a;
+const fmtPt = p => (p>0?'+':'')+p;
+// Price after fees, as decimal odds
+function effDec(book, dec){
+  if(book==='kalshi' && S.kalshiFee){ const p=1/dec; return 1/(p+0.07*p*(1-p)); } // Kalshi taker fee ≈ 7%·P·(1−P) per contract
+  const f = (S.fees && S.fees[book]) || 0;               // % of winnings
+  return 1+(dec-1)*(1-f/100);
+}
+
+/* ---------- turn API events into comparable markets ---------- */
+function buildGroups(events){
+  const out=[];
+  for(const ev of events){
+    const map=new Map();
+    for(const bk of ev.bookmakers||[]){
+      for(const mk of bk.markets||[]){
+        const outs=mk.outcomes||[]; let gkey,label,nameOf;
+        if(mk.key==='h2h'){ gkey='h2h'; label='Moneyline'; nameOf=o=>o.name; }
+        else if(mk.key==='spreads'){
+          const h=outs.find(o=>o.name===ev.home_team); if(!h||h.point==null) continue;
+          gkey='spreads|'+h.point; label='Spread'; nameOf=o=>o.name+' '+fmtPt(o.point);
+        } else if(mk.key==='totals'){
+          const o0=outs[0]; if(!o0||o0.point==null) continue;
+          gkey='totals|'+o0.point; label='Total '+o0.point; nameOf=o=>o.name+' '+o.point;
+        } else continue;
+        const point=mk.key==='h2h'?null:(mk.key==='spreads'?outs.find(o=>o.name===ev.home_team).point:outs[0].point);
+        if(!map.has(gkey)) map.set(gkey,{ev,market:mk.key,gkey,label,point,names:[],prices:{}});
+        const g=map.get(gkey);
+        const upd=new Date(mk.last_update||bk.last_update||Date.now()).getTime();
+        for(const o of outs){
+          const n=nameOf(o); if(!g.names.includes(n)) g.names.push(n);
+          const dec=amToDec(o.price);
+          (g.prices[bk.key] ||= {})[n]={am:o.price,dec,eff:effDec(bk.key,dec),link:o.link||mk.link||bk.link||null,upd,raw:o};
+        }
+      }
+    }
+    out.push(...map.values());
+  }
+  return out;
+}
+const isLive = ev => new Date(ev.commence_time).getTime() <= Date.now();
+const ageSec = q => Math.max(0,(Date.now()-q.upd)/1000);
+const fresh = q => !S.maxAgeMin || ageSec(q) <= S.maxAgeMin*60;
+const ageTxt = q => { const s=ageSec(q); return s<60?`${Math.round(s)}s ago`:s<3600?`${Math.round(s/60)}m ago`:`${Math.round(s/3600)}h ago`; };
+const holdPct = (g,b) => { if(!g.names.every(n=>g.prices[b]&&g.prices[b][n])) return null; return (g.names.reduce((a,n)=>a+1/g.prices[b][n].dec,0)-1)*100; };
+
+// Fair (no-vig) probabilities: Pinnacle if it has the market, else average of devigged books (needs 3+)
+function fair(g){
+  const n=g.names, full=b=>n.every(x=>g.prices[b]&&g.prices[b][x]);
+  const devig=b=>{ const inv=n.map(x=>1/g.prices[b][x].dec), s=inv.reduce((a,c)=>a+c,0); return inv.map(v=>v/s); };
+  if(full(SHARP.key)) return {probs:devig(SHARP.key),src:'Pinnacle'};
+  const bs=Object.keys(g.prices).filter(full);
+  if(bs.length<3) return null;
+  const sum=n.map(()=>0); bs.forEach(b=>devig(b).forEach((p,i)=>sum[i]+=p));
+  return {probs:sum.map(v=>v/bs.length),src:`market avg of ${bs.length}`};
+}
+
+function findEV(groups){
+  const res=[];
+  for(const g of groups){
+    if(!S.includeLive && isLive(g.ev)) continue;
+    const f=fair(g); if(!f) continue;
+    g.names.forEach((n,i)=>{
+      const p=f.probs[i];
+      for(const b of S.books){
+        const q=g.prices[b]&&g.prices[b][n]; if(!q||!fresh(q)) continue;
+        const ev=(p*q.eff-1)*100;
+        if(ev>=S.minEV){
+          const k=Math.max(0,(p*q.eff-1)/(q.eff-1));
+          res.push({g,name:n,book:b,q,ev,fairProb:p,fairSrc:f.src,stake:S.bankroll*k*S.kellyFrac});
+        }
+      }
+    });
+  }
+  return res.sort((a,b)=>b.ev-a.ev);
+}
+
+function findArbs(groups){
+  const res=[];
+  for(const g of groups){
+    if(!S.includeLive && isLive(g.ev)) continue;
+    if(g.names.length<2) continue;
+    const legs=g.names.map(n=>{
+      let best=null;
+      for(const b of S.books){ const q=g.prices[b]&&g.prices[b][n]; if(q&&fresh(q)&&(!best||q.eff>best.q.eff)) best={book:b,q,name:n}; }
+      return best;
+    });
+    if(legs.some(l=>!l)) continue;
+    const sum=legs.reduce((a,l)=>a+1/l.q.eff,0);
+    if(sum<1 && new Set(legs.map(l=>l.book)).size>1){
+      const B=S.bankroll;
+      legs.forEach(l=>{ l.stake=B*(1/l.q.eff)/sum; });
+      res.push({g,legs,profitPct:(1/sum-1)*100,payout:B/sum});
+    }
+  }
+  return res.sort((a,b)=>b.profitPct-a.profitPct);
+}
+
+// Middles: two sides at different numbers where both bets can win (e.g. Over 44.5 + Under 46.5)
+function findMiddles(groups){
+  const res=[], byEv=new Map();
+  for(const g of groups){ if(g.market==='h2h') continue; if(!S.includeLive&&isLive(g.ev)) continue;
+    (byEv.get(g.ev.id)||byEv.set(g.ev.id,[]).get(g.ev.id)).push(g); }
+  const bestLeg=(g,n)=>{ let best=null; for(const b of S.books){ const q=g.prices[b]&&g.prices[b][n]; if(q&&fresh(q)&&(!best||q.eff>best.q.eff)) best={book:b,q,name:n}; } return best; };
+  for(const gs of byEv.values()){
+    for(const mkt of ['totals','spreads']){
+      const list=gs.filter(g=>g.market===mkt);
+      for(const lo of list) for(const hi of list){
+        // totals: Over at the lower number + Under at the higher number
+        // spreads: home at the bigger +points + away at the smaller home number
+        let a,b,width;
+        if(mkt==='totals'){ if(hi.point<=lo.point) continue; a=bestLeg(lo,lo.names.find(n=>n.startsWith('Over'))); b=bestLeg(hi,hi.names.find(n=>n.startsWith('Under'))); width=hi.point-lo.point; }
+        else { if(hi.point<=lo.point) continue; const home=hi.ev.home_team;
+          a=bestLeg(hi,hi.names.find(n=>n.startsWith(home))); b=bestLeg(lo,lo.names.find(n=>!n.startsWith(home))); width=hi.point-lo.point; }
+        if(!a||!b) continue;
+        const sum=1/a.q.eff+1/b.q.eff, B=S.bankroll, P=B/sum;
+        const miss=P-B, hit=a.q.eff*(B/a.q.eff/sum)+b.q.eff*(B/b.q.eff/sum)-B;
+        if(miss/B*100 >= -S.middleMaxLoss) res.push({ev:lo.ev,mkt,legs:[a,b],width,miss,hit,
+          stakes:[B/a.q.eff/sum,B/b.q.eff/sum]});
+      }
+    }
+  }
+  return res.sort((x,y)=>(y.miss-x.miss)||(y.width-x.width));
+}
+
+/* ---------- data ---------- */
+async function refresh(){
+  const btn=document.getElementById('refresh'), errs=[];
+  if(!S.apiKey){ showTab('setup'); setErr(['Add your API key first.']); return; }
+  btn.disabled=true; btn.textContent='Loading…';
+  const books=[...S.books,SHARP.key].join(',');   // ≤10 books = billed as 1 region
+  const all=[]; let rem=null,used=null;
+  await Promise.all(S.sports.map(async sp=>{
+    const url=`https://api.the-odds-api.com/v4/sports/${sp}/odds/?apiKey=${encodeURIComponent(S.apiKey)}&bookmakers=${books}&markets=${S.markets.join(',')}&oddsFormat=american&includeLinks=true`;
+    try{
+      const r=await fetch(url);
+      rem=r.headers.get('x-requests-remaining')??rem; used=r.headers.get('x-requests-used')??used;
+      if(!r.ok){ let m=''; try{m=(await r.json()).message||'';}catch(e){} throw new Error(`${r.status} ${m}`); }
+      const data=await r.json(); data.forEach(e=>e._sport=sp); all.push(...data);
+    }catch(e){ errs.push(`${sportName(sp)}: ${e.message||e}`); }
+  }));
+  EVENTS=all; lastInfo={time:new Date(),remaining:rem,used,demo:false};
+  btn.disabled=false; btn.textContent='Refresh';
+  setErr(errs); render(); checkNew(buildGroups(EVENTS)); updateAutoLabel();
+}
+const sportName = k => (SPORTS.find(s=>s.key===k)||{name:k}).name;
+
+function loadDemo(){
+  const t=h=>new Date(Date.now()+h*3600e3).toISOString();
+  const now=new Date().toISOString();
+  const bk=(key,h2h,spr,tot,tp=44.5)=>({key,title:bookName(key),last_update:now,markets:[
+    {key:'h2h',outcomes:[{name:'Chicago Bears',price:h2h[0]},{name:'Green Bay Packers',price:h2h[1]}]},
+    {key:'spreads',outcomes:[{name:'Chicago Bears',price:spr[0],point:3.5},{name:'Green Bay Packers',price:spr[1],point:-3.5}]},
+    {key:'totals',outcomes:[{name:'Over',price:tot[0],point:tp},{name:'Under',price:tot[1],point:tp}]}]});
+  const bk2=(key,h2h)=>({key,title:bookName(key),last_update:now,markets:[{key:'h2h',outcomes:[{name:'Detroit Lions',price:h2h[0]},{name:'Minnesota Vikings',price:h2h[1]}]}]});
+  EVENTS=[
+    {id:'d1',_sport:'americanfootball_nfl',commence_time:t(30),home_team:'Chicago Bears',away_team:'Green Bay Packers',bookmakers:[
+      bk('pinnacle',[150,-165],[-105,-105],[-108,-102]),
+      bk('draftkings',[145,-175],[-110,-110],[-110,-110]),
+      bk('fanduel',[162,-180],[-112,-108],[-105,-115]),
+      bk('betmgm',[140,-170],[-110,-110],[-110,-110]),
+      bk('williamhill_us',[145,-175],[-108,-112],[-112,-108]),
+      bk('fanatics',[150,-180],[-110,-110],[-110,-110]),
+      bk('hardrockbet',[145,-175],[-105,-115],[105,-102],46.5),
+      bk('novig',[152,-158],[102,-104],[-104,-102]),
+      bk('kalshi',[150,-156],[100,-104],[-106,102]),
+      bk('polymarket',[148,-157],[-101,-103],[-105,101])]},
+    {id:'d2',_sport:'americanfootball_nfl',commence_time:t(54),home_team:'Detroit Lions',away_team:'Minnesota Vikings',bookmakers:[
+      bk2('pinnacle',[-130,118]),bk2('draftkings',[-118,100]),bk2('fanduel',[-135,114]),bk2('betmgm',[-130,110]),
+      bk2('hardrockbet',[-140,124]),bk2('novig',[-128,122]),bk2('kalshi',[-127,121])]},
+  ];
+  lastInfo={time:new Date(),remaining:null,used:null,demo:true};
+  setErr([]); render(); showTab('ev');
+}
+
+/* ---------- rendering ---------- */
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const when=ev=>{ if(isLive(ev)) return '<span class="pill pl">LIVE</span>'; const d=new Date(ev.commence_time); return d.toLocaleString([], {weekday:'short',hour:'numeric',minute:'2-digit'}); };
+const gameLine=ev=>`${esc(ev.away_team)} @ ${esc(ev.home_team)} · ${sportName(ev._sport)} · ${when(ev)}`;
+const money=v=>'$'+v.toFixed(2);
+const betLink=(b,q)=>q.link?`<a class="lnk" href="${esc(q.link)}" target="_blank" rel="noopener">Open ${esc(bookName(b))} ›</a>`:'';
+function setErr(list){ document.getElementById('errors').innerHTML=list.map(e=>`<div class="err">${esc(e)}</div>`).join(''); }
+
+function render(){
+  const groups=buildGroups(EVENTS);
+  const m=document.getElementById('meta');
+  if(lastInfo){
+    m.textContent=(lastInfo.demo?'DEMO DATA · ':'')+`${EVENTS.length} games · updated ${lastInfo.time.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`+
+      (lastInfo.remaining!=null?` · ${Number(lastInfo.remaining).toLocaleString()} credits left`:'');
+  }
+  renderEV(groups); renderArbs(groups); renderMiddles(groups); renderOdds(groups);
+}
+
+/* ---------- new-edge alerts ---------- */
+let seen=null, newKeys=new Set();
+const evKey=x=>`ev|${x.g.ev.id}|${x.g.gkey}|${x.name}|${x.book}`;
+const arbKey=a=>`arb|${a.g.ev.id}|${a.g.gkey}|${a.legs.map(l=>l.book).join(',')}`;
+function checkNew(groups){
+  const keys=new Set([...findEV(groups).filter(x=>x.ev>=Math.max(S.minEV,2)).map(evKey),...findArbs(groups).map(arbKey)]);
+  if(seen){ newKeys=new Set([...keys].filter(k=>!seen.has(k))); if(newKeys.size && S.alerts) alertUser(newKeys.size); }
+  seen=keys;
+  // re-render cards so NEW badges show
+  renderEV(groups); renderArbs(groups);
+}
+let actx=null;
+function beep(){ try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); const o=actx.createOscillator(),gn=actx.createGain();
+  o.frequency.value=880; gn.gain.value=0.15; o.connect(gn); gn.connect(actx.destination); o.start(); o.stop(actx.currentTime+0.18);}catch(e){} }
+function alertUser(n){
+  beep(); try{ navigator.vibrate&&navigator.vibrate(200); }catch(e){}
+  try{ if(window.Notification&&Notification.permission==='granted') new Notification('Edge Finder',{body:`${n} new edge${n>1?'s':''} found`}); }catch(e){}
+  const t=document.title; document.title=`(${n}) new edges`; setTimeout(()=>document.title=t,8000);
+}
+
+/* ---------- auto refresh ---------- */
+let timer=null, countdown=0;
+function setupAuto(){
+  clearInterval(timer); timer=null;
+  if(!S.autoSec||!S.apiKey) return updateAutoLabel();
+  countdown=S.autoSec;
+  timer=setInterval(()=>{ if(document.hidden) return; countdown--; if(countdown<=0){ countdown=S.autoSec; refresh(); } updateAutoLabel(); },1000);
+  updateAutoLabel();
+}
+function updateAutoLabel(){ const b=document.getElementById('refresh'); if(b.disabled) return; b.textContent=timer?`Refresh · ${countdown}s`:'Refresh'; }
+const creditsPerRefresh=()=>S.sports.length*S.markets.length;
+
+function renderEV(groups){
+  const el=document.getElementById('v-ev');
+  if(!lastInfo){ el.innerHTML=emptyStart(); return; }
+  const list=findEV(groups);
+  if(!list.length){ el.innerHTML=`<div class="empty">No bets at or above ${S.minEV}% EV right now.<br>Lower the minimum in Settings or refresh later.</div>`; return; }
+  el.innerHTML=list.map(x=>{
+    const cls=x.ev>=3?'pg':'pw';
+    const nw=newKeys.has(evKey(x))?'<span class="pill pl">NEW</span>':'';
+    const h=holdPct(x.g,x.book);
+    return `<div class="card">
+      <div class="row"><span class="pill ${cls}">+${x.ev.toFixed(1)}% EV</span>${nw}<span class="mut">${esc(x.g.label)}</span><span class="grow"></span>${betLink(x.book,x.q)}</div>
+      <div class="big" style="margin-top:6px">${esc(x.name)} ${x.g.market==='h2h'?'ML':''} <span class="price">${fmtAm(x.q.am)}</span> <span class="mut">at ${esc(bookName(x.book))}</span></div>
+      <div class="mut">${gameLine(x.g.ev)}</div>
+      <div class="mut" style="margin-top:4px">Fair ${decToAm(1/x.fairProb)} (${esc(x.fairSrc)}) · win ${(x.fairProb*100).toFixed(1)}% · ${kellyLabel()} stake ${money(x.stake)}</div>
+      <div class="mut">Line updated ${ageTxt(x.q)}${h!=null?` · ${esc(bookName(x.book))} hold ${h.toFixed(1)}%`:''}</div>
+    </div>`;}).join('');
+}
+
+function renderArbs(groups){
+  const el=document.getElementById('v-arbs');
+  if(!lastInfo){ el.innerHTML=emptyStart(); return; }
+  const list=findArbs(groups);
+  if(!list.length){ el.innerHTML=`<div class="empty">No arbitrage right now. True arbs are rare and usually last seconds to minutes, so refresh often around line moves.</div>`; return; }
+  el.innerHTML=list.map(a=>`<div class="card">
+      <div class="row"><span class="pill pg">+${a.profitPct.toFixed(2)}% guaranteed</span>${newKeys.has(arbKey(a))?'<span class="pill pl">NEW</span>':''}<span class="mut">${esc(a.g.label)}</span></div>
+      <div class="mut" style="margin:6px 0">${gameLine(a.g.ev)}</div>
+      <table class="stake"><tr><th>Bet</th><th>Odds</th><th>Book</th><th>Stake</th></tr>
+      ${a.legs.map(l=>`<tr><td>${esc(l.name)}</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(l.stake)}</b></td></tr>`).join('')}</table>
+      <div class="mut" style="margin-top:6px">Total ${money(S.bankroll)} → returns ${money(a.payout)} either way (profit ${money(a.payout-S.bankroll)})</div>
+      <div class="row" style="margin-top:6px">${a.legs.map(l=>betLink(l.book,l.q)).join(' ')}</div>
+    </div>`).join('');
+}
+
+const kellyLabel=()=>({0.25:'¼ Kelly',0.5:'½ Kelly',1:'Kelly'}[S.kellyFrac]||'Kelly');
+
+function renderMiddles(groups){
+  const el=document.getElementById('v-middles');
+  if(!lastInfo){ el.innerHTML=emptyStart(); return; }
+  const list=findMiddles(groups);
+  if(!list.length){ el.innerHTML=`<div class="empty">No middles within ${S.middleMaxLoss}% worst-case loss. Middles show up when books disagree on the spread or total number.</div>`; return; }
+  el.innerHTML=`<div class="mut" style="margin-bottom:8px">Bet both sides at different numbers. If the result lands between them, both bets win. Otherwise you lose a little (or profit, if it's also an arb).</div>`+
+  list.map(m=>`<div class="card">
+    <div class="row"><span class="pill ${m.miss>=0?'pg':'pw'}">${m.width} pt window</span><span class="mut">${m.mkt==='totals'?'Totals':'Spreads'}</span></div>
+    <div class="mut" style="margin:6px 0">${gameLine(m.ev)}</div>
+    <table class="stake"><tr><th>Bet</th><th>Odds</th><th>Book</th><th>Stake</th></tr>
+    ${m.legs.map((l,i)=>`<tr><td>${esc(l.name)}</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(m.stakes[i])}</b></td></tr>`).join('')}</table>
+    <div class="mut" style="margin-top:6px">Hits middle: <b style="color:var(--good)">+${money(m.hit)}</b> · Misses: <b style="color:${m.miss>=0?'var(--good)':'var(--bad)'}">${m.miss>=0?'+':'−'}${money(Math.abs(m.miss))}</b></div>
+    <div class="row" style="margin-top:6px">${m.legs.map(l=>betLink(l.book,l.q)).join(' ')}</div>
+  </div>`).join('');
+}
+
+let oddsFilter={sport:'all',market:'h2h'};
+function renderOdds(groups){
+  const el=document.getElementById('v-odds');
+  if(!lastInfo){ el.innerHTML=emptyStart(); return; }
+  const sel=(id,opts,val)=>`<select id="${id}">${opts.map(o=>`<option value="${o.v}" ${o.v===val?'selected':''}>${esc(o.n)}</option>`).join('')}</select>`;
+  let html=`<div class="filters">${sel('f-sport',[{v:'all',n:'All sports'},...S.sports.map(s=>({v:s,n:sportName(s)}))],oddsFilter.sport)}${sel('f-mkt',MARKETS.map(m=>({v:m.key,n:m.name})),oddsFilter.market)}</div>`;
+  const gs=groups.filter(g=>g.market===oddsFilter.market&&(oddsFilter.sport==='all'||g.ev._sport===oddsFilter.sport))
+    .sort((a,b)=>new Date(a.ev.commence_time)-new Date(b.ev.commence_time));
+  if(!gs.length) html+=`<div class="empty">No ${oddsFilter.market} lines for this filter.</div>`;
+  const cols=[...S.books,SHARP.key];
+  for(const g of gs){
+    const present=cols.filter(b=>g.prices[b]); const f=fair(g);
+    html+=`<div class="card"><div class="mut">${gameLine(g.ev)}</div><div style="font-weight:700;margin:4px 0">${esc(g.label)}</div><div class="scroll"><table>
+      <tr><th></th>${present.map(b=>`<th>${bookShort(b)}</th>`).join('')}<th>Fair</th></tr>
+      ${g.names.map((n,i)=>{
+        const best=Math.max(...S.books.map(b=>g.prices[b]&&g.prices[b][n]?g.prices[b][n].eff:0));
+        return `<tr><td>${esc(n)}</td>${present.map(b=>{const q=g.prices[b][n]; if(!q) return '<td class="mut">–</td>';
+          const isBest=b!==SHARP.key&&q.eff===best; return `<td class="${isBest?'best':''}">${fmtAm(q.am)}</td>`;}).join('')}
+          <td class="mut">${f?decToAm(1/f.probs[i]):'–'}</td></tr>`;}).join('')}
+    </table></div></div>`;
+  }
+  el.innerHTML=html;
+  document.getElementById('f-sport').onchange=e=>{oddsFilter.sport=e.target.value;render();};
+  document.getElementById('f-mkt').onchange=e=>{oddsFilter.market=e.target.value;render();};
+}
+
+function emptyStart(){
+  return `<div class="empty">Tap <b>Refresh</b> to pull live odds${S.apiKey?'':' (add your API key in Settings first)'}.<br><br><button class="sec" onclick="loadDemo()">Try demo data</button></div>`;
+}
+
+function renderSetup(){
+  const el=document.getElementById('v-setup');
+  const cb=(name,val,checked,label)=>`<label class="chk"><input type="checkbox" name="${name}" value="${val}" ${checked?'checked':''}>${esc(label)}</label>`;
+  el.innerHTML=`<div class="card">
+    <label for="k">The Odds API key</label>
+    <input id="k" type="password" placeholder="Paste your key" value="${esc(S.apiKey)}" autocomplete="off">
+    <div class="mut" style="margin-top:4px">Saved only in this browser. Get one at the-odds-api.com.</div>
+  </div>
+  <div class="card"><b>Sports</b><div class="grid2">${SPORTS.map(s=>cb('sp',s.key,S.sports.includes(s.key),s.name)).join('')}</div>
+    <hr><b>Markets</b><div class="grid2">${MARKETS.map(m=>cb('mk',m.key,S.markets.includes(m.key),m.name)).join('')}</div>
+    <div class="mut">Each refresh costs about ${creditsPerRefresh()} credits (sports × markets).</div></div>
+  <div class="card"><b>Live updating</b>
+    <label for="auto">Auto-refresh</label>
+    <select id="auto">${[[0,'Off (manual)'],[15,'Every 15 seconds'],[30,'Every 30 seconds'],[60,'Every 60 seconds'],[120,'Every 2 minutes'],[300,'Every 5 minutes']].map(([v,n])=>`<option value="${v}" ${S.autoSec==v?'selected':''}>${n}</option>`).join('')}</select>
+    <label for="hpd">Hours per day you'll leave it running</label><input id="hpd" type="number" step="1" value="${S.hoursPerDay}">
+    <div class="mut" id="burn" style="margin-top:6px"></div>
+    <label for="age">Ignore lines older than (minutes, 0 = never)</label><input id="age" type="number" step="1" value="${S.maxAgeMin}">
+    <label class="chk"><input id="alerts" type="checkbox" ${S.alerts?'checked':''}>Beep + vibrate when a new edge (2%+ EV or arb) appears</label>
+    <button class="sec" id="notif" style="width:100%">Enable phone/desktop notifications</button>
+    <div class="mut" style="margin-top:4px">Auto-refresh pauses while the page is in the background, to save credits.</div>
+  </div>
+  <div class="card"><b>Books you can bet</b><div class="grid2">${BOOKS.map(b=>cb('bk',b.key,S.books.includes(b.key),b.name)).join('')}</div>
+    <div class="mut">Pinnacle is always pulled as the sharp "fair price" reference, but never shown as a place to bet.</div></div>
+  <div class="card">
+    <label for="mev">Minimum EV %</label><input id="mev" type="number" step="0.5" value="${S.minEV}">
+    <label for="br">Bankroll / arb total ($)</label><input id="br" type="number" step="10" value="${S.bankroll}">
+    <label for="kf">Kelly fraction</label><select id="kf">${[[0.25,'¼ Kelly (recommended)'],[0.5,'½ Kelly'],[1,'Full Kelly']].map(([v,n])=>`<option value="${v}" ${S.kellyFrac==v?'selected':''}>${n}</option>`).join('')}</select>
+    <label class="chk"><input id="kfee" type="checkbox" ${S.kalshiFee?'checked':''}>Apply Kalshi trading fee</label>
+    <label for="nf">Novig fee (% of winnings)</label><input id="nf" type="number" step="0.5" value="${S.fees.novig||0}">
+    <label for="pf">Polymarket fee (% of winnings)</label><input id="pf" type="number" step="0.5" value="${S.fees.polymarket||0}">
+    <label for="mml">Middles: max worst-case loss (%)</label><input id="mml" type="number" step="0.5" value="${S.middleMaxLoss}">
+    <label class="chk"><input id="live" type="checkbox" ${S.includeLive?'checked':''}>Include games already in progress</label>
+  </div>
+  <button id="saveBtn" style="width:100%">Save settings</button>
+  <div style="height:8px"></div>
+  <button class="sec" style="width:100%" onclick="loadDemo()">Load demo data</button>`;
+  document.getElementById('saveBtn').onclick=()=>{
+    const vals=n=>[...el.querySelectorAll(`input[name=${n}]:checked`)].map(i=>i.value);
+    S.apiKey=document.getElementById('k').value.trim();
+    S.sports=vals('sp'); S.markets=vals('mk'); S.books=vals('bk');
+    S.minEV=parseFloat(document.getElementById('mev').value)||0;
+    S.bankroll=parseFloat(document.getElementById('br').value)||100;
+    S.kellyFrac=parseFloat(document.getElementById('kf').value)||0.25;
+    S.kalshiFee=document.getElementById('kfee').checked;
+    S.fees={novig:parseFloat(document.getElementById('nf').value)||0,polymarket:parseFloat(document.getElementById('pf').value)||0};
+    S.includeLive=document.getElementById('live').checked;
+    S.autoSec=parseInt(document.getElementById('auto').value)||0;
+    S.hoursPerDay=parseFloat(document.getElementById('hpd').value)||8;
+    S.maxAgeMin=parseFloat(document.getElementById('age').value)||0;
+    S.middleMaxLoss=parseFloat(document.getElementById('mml').value)||0;
+    S.alerts=document.getElementById('alerts').checked;
+    save(); setupAuto(); if(lastInfo) render(); renderSetup();
+    const b=document.getElementById('saveBtn'); b.textContent='Saved ✓'; setTimeout(()=>b.textContent='Save settings',1200);
+  };
+  const burn=()=>{ const a=parseInt(document.getElementById('auto').value)||0, h=parseFloat(document.getElementById('hpd').value)||0;
+    const per=creditsPerRefresh(); const el2=document.getElementById('burn');
+    if(!a){ el2.textContent=`Manual: ${per} credits per tap.`; return; }
+    const month=Math.round(per*(3600/a)*h*30);
+    const plan=month<=20000?'20K plan ($30/mo)':month<=100000?'100K plan ($59/mo)':month<=5000000?'5M plan':'15M plan';
+    el2.innerHTML=`≈ <b>${month.toLocaleString()}</b> credits/month → needs the ${plan}. Check current prices at the-odds-api.com.`; };
+  document.getElementById('auto').onchange=burn; document.getElementById('hpd').oninput=burn; burn();
+  document.getElementById('notif').onclick=async()=>{ try{ const p=await Notification.requestPermission(); document.getElementById('notif').textContent=p==='granted'?'Notifications on ✓':'Notifications blocked'; }catch(e){ document.getElementById('notif').textContent='Not supported in this browser'; } beep(); };
+}
+
+/* ---------- tabs ---------- */
+function showTab(t){
+  document.querySelectorAll('#tabs a').forEach(a=>a.classList.toggle('on',a.dataset.t===t));
+  ['ev','arbs','middles','odds','setup'].forEach(x=>document.getElementById('v-'+x).hidden=x!==t);
+  if(t==='setup') renderSetup();
+}
+document.querySelectorAll('#tabs a').forEach(a=>a.onclick=e=>{e.preventDefault();showTab(a.dataset.t);});
+document.getElementById('refresh').onclick=refresh;
+render();
+showTab(S.apiKey?'ev':'setup');
+setupAuto();
+</script>
+</body>
+</html>
