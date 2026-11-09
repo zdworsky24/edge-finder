@@ -48,6 +48,17 @@
   .chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0 10px}
   .chip{flex:0 0 auto;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--mut);font-size:13px;font-weight:600}
   .chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+  .fpanel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:10px}
+  .fpanel summary{font-weight:700;cursor:pointer}
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
+  .fgrid label{margin:8px 0 3px;font-size:13px}
+  .fgrid .full{grid-column:1/-1}
+  .hide{background:none;border:0;color:var(--mut);font-size:12px;padding:2px 4px;font-weight:600}
+  .sheetbg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+  .sheet{background:var(--bg);border:1px solid var(--line);border-radius:18px 18px 0 0;width:100%;max-width:640px;max-height:88vh;overflow:auto;padding:14px 14px 30px}
+  .card[data-gi]{cursor:pointer}
+  td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad)}
+  tr.pick td{background:rgba(79,140,255,.12)}
   hr{border:0;border-top:1px solid var(--line);margin:10px 0}
 </style>
 </head>
@@ -68,6 +79,8 @@
   <div class="chips" id="win"></div>
 </header>
 <main>
+  <div id="fbar"></div>
+  <div id="sheet"></div>
   <div id="errors"></div>
   <section id="v-ev"></section>
   <section id="v-arbs" hidden></section>
@@ -106,13 +119,21 @@ const bookShort = k => (BOOKS.find(b=>b.key===k)||(k===SHARP.key?SHARP:{short:k}
 const DEFAULTS = {
   apiKey:'', sports:['americanfootball_nfl','americanfootball_ncaaf','basketball_nba','basketball_ncaab','icehockey_nhl'],
   books:BOOKS.map(b=>b.key), markets:['h2h','spreads','totals'],
-  minEV:1, bankroll:100, kellyFrac:0.25, kalshiFee:true, fees:{novig:0,polymarket:0}, includeLive:false,
+  minEV:2, bankroll:100, kellyFrac:0.25, kalshiFee:true, fees:{novig:0,polymarket:0}, includeLive:false,
   autoSec:0, maxAgeMin:15, windowH:0, middleMaxLoss:2, alerts:true, hoursPerDay:8
 };
 function load(){ try{ return Object.assign({},DEFAULTS,JSON.parse(localStorage.getItem('edgefinder')||'{}')); }catch(e){ return {...DEFAULTS}; } }
 function save(){ try{ localStorage.setItem('edgefinder',JSON.stringify(S)); }catch(e){} }
 let S = load();
-let EVENTS = [];           // raw events from the API
+const FDEF={sport:'all',market:'all',books:[],minEV:1,maxEV:'',minOdds:'',maxOdds:'',q:'',sort:'best',pinOnly:false,minArb:0};
+S.F=Object.assign({},FDEF,S.F||{}); S.hidden=S.hidden||[];
+const activeBooks=()=>S.F.books.length?S.books.filter(b=>S.F.books.includes(b)):S.books;
+const passGame=(ev,market)=>(S.F.sport==='all'||ev._sport===S.F.sport)&&(S.F.market==='all'||market===S.F.market)&&
+  (!S.F.q||(ev.home_team+' '+ev.away_team).toLowerCase().includes(S.F.q.toLowerCase()));
+const passOdds=am=>(S.F.minOdds===''||am>=+S.F.minOdds)&&(S.F.maxOdds===''||am<=+S.F.maxOdds);
+const byTime=(a,b)=>new Date(a.commence_time)-new Date(b.commence_time);
+let EVENTS = [];
+let CUR = [];              // groups currently on screen (for tap-to-detail)           // raw events from the API
 let lastInfo = null;       // {time, remaining, used, demo}
 
 /* ---------- odds math ---------- */
@@ -175,17 +196,17 @@ function fair(g){
   return {probs:sum.map(v=>v/bs.length),src:`market avg of ${bs.length}`};
 }
 
-function findEV(groups){
+function findEV(groups,thr=S.F.minEV){
   const res=[];
   for(const g of groups){
     if(!S.includeLive && isLive(g.ev)) continue;
     const f=fair(g); if(!f) continue;
     g.names.forEach((n,i)=>{
       const p=f.probs[i];
-      for(const b of S.books){
+      for(const b of activeBooks()){
         const q=g.prices[b]&&g.prices[b][n]; if(!q||!fresh(q)) continue;
         const ev=(p*q.eff-1)*100;
-        if(ev>=S.minEV){
+        if(ev>=thr){
           const k=Math.max(0,(p*q.eff-1)/(q.eff-1));
           res.push({g,name:n,book:b,q,ev,fairProb:p,fairSrc:f.src,stake:S.bankroll*k*S.kellyFrac});
         }
@@ -202,7 +223,7 @@ function findArbs(groups){
     if(g.names.length<2) continue;
     const legs=g.names.map(n=>{
       let best=null;
-      for(const b of S.books){ const q=g.prices[b]&&g.prices[b][n]; if(q&&fresh(q)&&(!best||q.eff>best.q.eff)) best={book:b,q,name:n}; }
+      for(const b of activeBooks()){ const q=g.prices[b]&&g.prices[b][n]; if(q&&fresh(q)&&(!best||q.eff>best.q.eff)) best={book:b,q,name:n}; }
       return best;
     });
     if(legs.some(l=>!l)) continue;
@@ -221,7 +242,7 @@ function findMiddles(groups){
   const res=[], byEv=new Map();
   for(const g of groups){ if(g.market==='h2h') continue; if(!S.includeLive&&isLive(g.ev)) continue;
     (byEv.get(g.ev.id)||byEv.set(g.ev.id,[]).get(g.ev.id)).push(g); }
-  const bestLeg=(g,n)=>{ let best=null; for(const b of S.books){ const q=g.prices[b]&&g.prices[b][n]; if(q&&fresh(q)&&(!best||q.eff>best.q.eff)) best={book:b,q,name:n}; } return best; };
+  const bestLeg=(g,n)=>{ let best=null; for(const b of activeBooks()){ const q=g.prices[b]&&g.prices[b][n]; if(q&&fresh(q)&&(!best||q.eff>best.q.eff)) best={book:b,q,name:n}; } return best; };
   for(const gs of byEv.values()){
     for(const mkt of ['totals','spreads']){
       const list=gs.filter(g=>g.market===mkt);
@@ -310,7 +331,7 @@ function renderWindow(){
 }
 function render(){
   const shown=EVENTS.filter(inWindow);
-  const groups=buildGroups(shown);
+  const groups=buildGroups(shown); CUR=groups;
   const m=document.getElementById('meta');
   if(lastInfo){
     m.textContent=(lastInfo.demo?'DEMO DATA · ':'')+`${shown.length}${shown.length!==EVENTS.length?' of '+EVENTS.length:''} games · updated ${lastInfo.time.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`+
@@ -324,7 +345,7 @@ let seen=null, newKeys=new Set();
 const evKey=x=>`ev|${x.g.ev.id}|${x.g.gkey}|${x.name}|${x.book}`;
 const arbKey=a=>`arb|${a.g.ev.id}|${a.g.gkey}|${a.legs.map(l=>l.book).join(',')}`;
 function checkNew(groups){
-  const keys=new Set([...findEV(groups).filter(x=>x.ev>=Math.max(S.minEV,2)).map(evKey),...findArbs(groups).map(arbKey)]);
+  const keys=new Set([...findEV(groups,S.minEV).filter(x=>!S.hidden.includes(evKey(x))).map(evKey),...findArbs(groups).filter(a=>!S.hidden.includes(arbKey(a))).map(arbKey)]);
   if(seen){ newKeys=new Set([...keys].filter(k=>!seen.has(k))); if(newKeys.size && S.alerts) alertUser(newKeys.size); }
   seen=keys;
   // re-render cards so NEW badges show
@@ -354,34 +375,120 @@ const creditsPerRefresh=()=>S.sports.length*S.markets.length;
 function renderEV(groups){
   const el=document.getElementById('v-ev');
   if(!lastInfo){ el.innerHTML=emptyStart(); return; }
-  const list=findEV(groups);
-  if(!list.length){ el.innerHTML=`<div class="empty">No bets at or above ${S.minEV}% EV right now.<br>Lower the minimum in Settings or refresh later.</div>`; return; }
+  const list=findEV(groups).filter(x=>passGame(x.g.ev,x.g.market)&&passOdds(x.q.am)&&(S.F.maxEV===''||x.ev<=+S.F.maxEV)
+    &&(!S.F.pinOnly||x.fairSrc==='Pinnacle')&&!S.hidden.includes(evKey(x)));
+  if(S.F.sort==='time') list.sort((a,b)=>byTime(a.g.ev,b.g.ev)); else if(S.F.sort==='odds') list.sort((a,b)=>b.q.dec-a.q.dec);
+  if(!list.length){ el.innerHTML=`<div class="empty">No bets match your filters right now.<br>Try lowering Min EV or widening the time window.</div>`; return; }
   el.innerHTML=list.map(x=>{
     const cls=x.ev>=3?'pg':'pw';
     const nw=newKeys.has(evKey(x))?'<span class="pill pl">NEW</span>':'';
     const h=holdPct(x.g,x.book);
-    return `<div class="card">
-      <div class="row"><span class="pill ${cls}">+${x.ev.toFixed(1)}% EV</span>${nw}<span class="mut">${esc(x.g.label)}</span><span class="grow"></span>${betLink(x.book,x.q)}</div>
+    return `<div class="card" data-gi="${CUR.indexOf(x.g)}" data-n="${esc(x.name)}" data-b="${x.book}">
+      <div class="row"><span class="pill ${cls}">+${x.ev.toFixed(1)}% EV</span>${nw}<span class="mut">${esc(x.g.label)}</span><span class="grow"></span>${betLink(x.book,x.q)}<button class="hide" data-k="${esc(evKey(x))}">Hide</button></div>
       <div class="big" style="margin-top:6px">${esc(x.name)} ${x.g.market==='h2h'?'ML':''} <span class="price">${fmtAm(x.q.am)}</span> <span class="mut">at ${esc(bookName(x.book))}</span></div>
       <div class="mut">${gameLine(x.g.ev)}</div>
       <div class="mut" style="margin-top:4px">Fair ${decToAm(1/x.fairProb)} (${esc(x.fairSrc)}) · win ${(x.fairProb*100).toFixed(1)}% · ${kellyLabel()} stake ${money(x.stake)}</div>
-      <div class="mut">Line updated ${ageTxt(x.q)}${h!=null?` · ${esc(bookName(x.book))} hold ${h.toFixed(1)}%`:''}</div>
+      <div class="mut">Tap to compare all books · line updated ${ageTxt(x.q)}${h!=null?` · ${esc(bookName(x.book))} hold ${h.toFixed(1)}%`:''}</div>
     </div>`;}).join('');
 }
 
 function renderArbs(groups){
   const el=document.getElementById('v-arbs');
   if(!lastInfo){ el.innerHTML=emptyStart(); return; }
-  const list=findArbs(groups);
-  if(!list.length){ el.innerHTML=`<div class="empty">No arbitrage right now. True arbs are rare and usually last seconds to minutes, so refresh often around line moves.</div>`; return; }
+  const list=findArbs(groups).filter(a=>passGame(a.g.ev,a.g.market)&&a.profitPct>=S.F.minArb&&a.legs.every(l=>passOdds(l.q.am))&&!S.hidden.includes(arbKey(a)));
+  if(S.F.sort==='time') list.sort((a,b)=>byTime(a.g.ev,b.g.ev));
+  if(!list.length){ el.innerHTML=`<div class="empty">No arbitrage matching your filters right now. True arbs are rare and usually last seconds to minutes, so refresh often around line moves.</div>`; return; }
   el.innerHTML=list.map(a=>`<div class="card">
-      <div class="row"><span class="pill pg">+${a.profitPct.toFixed(2)}% guaranteed</span>${newKeys.has(arbKey(a))?'<span class="pill pl">NEW</span>':''}<span class="mut">${esc(a.g.label)}</span></div>
+      <div class="row"><span class="pill pg">+${a.profitPct.toFixed(2)}% guaranteed</span>${newKeys.has(arbKey(a))?'<span class="pill pl">NEW</span>':''}<span class="mut">${esc(a.g.label)}</span><span class="grow"></span><button class="hide" data-k="${esc(arbKey(a))}">Hide</button></div>
       <div class="mut" style="margin:6px 0">${gameLine(a.g.ev)}</div>
       <table class="stake"><tr><th>Bet</th><th>Odds</th><th>Book</th><th>Stake</th></tr>
-      ${a.legs.map(l=>`<tr><td>${esc(l.name)}</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(l.stake)}</b></td></tr>`).join('')}</table>
+      ${a.legs.map(l=>`<tr data-gi="${CUR.indexOf(a.g)}" data-n="${esc(l.name)}" data-b="${l.book}" style="cursor:pointer"><td>${esc(l.name)} ›</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(l.stake)}</b></td></tr>`).join('')}</table>
       <div class="mut" style="margin-top:6px">Total ${money(S.bankroll)} → returns ${money(a.payout)} either way (profit ${money(a.payout-S.bankroll)})</div>
       <div class="row" style="margin-top:6px">${a.legs.map(l=>betLink(l.book,l.q)).join(' ')}</div>
     </div>`).join('');
+}
+
+const midKey=m=>`mid|${m.ev.id}|${m.legs.map(l=>l.name+'@'+l.book).join('|')}`;
+document.addEventListener('click',e=>{ const b=e.target.closest&&e.target.closest('.hide'); if(!b) return;
+  S.hidden.push(b.dataset.k); save(); render(); renderFilters(curTab); });
+
+/* ---------- bet detail sheet ---------- */
+document.addEventListener('click',e=>{
+  if(e.target.closest('a,button,input,select,summary,label')) return;
+  const t=e.target.closest('[data-gi]'); if(!t||t.closest('#sheet')) return;
+  const g=CUR[+t.dataset.gi]; if(g) openDetail(g,t.dataset.n,t.dataset.b||null);
+});
+function openDetail(g,name,pick){
+  const f=fair(g), i=g.names.indexOf(name), p=f?f.probs[i]:null;
+  const rows=[...S.books,SHARP.key].filter(b=>g.prices[b]&&g.prices[b][name]).map(b=>({b,q:g.prices[b][name]}));
+  const bettable=rows.filter(r=>r.b!==SHARP.key).sort((a,c)=>c.q.eff-a.q.eff);
+  if(!pick&&bettable.length) pick=bettable[0].b;
+  const P=g.prices[pick]&&g.prices[pick][name];
+  const avg=bettable.length?bettable.reduce((a,r)=>a+(r.q.eff-1),0)/bettable.length:null;
+  const pct=v=>(v>=0?'+':'')+v.toFixed(1)+'%';
+  const ordered=[...bettable,...rows.filter(r=>r.b===SHARP.key)];
+  const other=g.names.filter(n=>n!==name);
+  document.getElementById('sheet').innerHTML=`<div class="sheetbg" id="sbg"><div class="sheet">
+    <div class="row"><div class="grow mut">${gameLine(g.ev)}</div><button class="sec" id="sclose">Close</button></div>
+    <div class="big" style="margin:8px 0 2px">${esc(name)} <span class="mut">· ${esc(g.label)}</span></div>
+    ${P?`<div>Your pick: <span class="price">${fmtAm(P.am)}</span> at <b>${esc(bookName(pick))}</b>
+      ${p!=null?` · <b class="${(p*P.eff-1)>=0?'pos':'neg'}" style="color:${(p*P.eff-1)>=0?'var(--good)':'var(--bad)'}">${pct((p*P.eff-1)*100)} EV</b>`:''}</div>`:''}
+    <div class="mut" style="margin:4px 0 10px">${f?`Fair price ${decToAm(1/p)} · ${(p*100).toFixed(1)}% to win · from ${esc(f.src)}`:'Not enough books to set a fair price.'}
+      ${P&&avg?` · pays ${pct(((P.eff-1)/avg-1)*100)} more profit than the average book`:''}</div>
+    <div class="scroll"><table>
+      <tr><th>Book</th><th>Odds</th><th>EV</th><th>Your edge vs it</th><th>Hold</th><th>Updated</th></tr>
+      ${ordered.map(({b,q})=>{ const ev=p!=null?(p*q.eff-1)*100:null; const vs=P&&b!==pick?((P.eff-1)/(q.eff-1)-1)*100:null; const h=holdPct(g,b);
+        return `<tr class="${b===pick?'pick':''}"><td>${esc(bookName(b))}${b===SHARP.key?' <span class="mut">(ref)</span>':''}</td>
+          <td>${fmtAm(q.am)}${q.eff!==q.dec?`<div class="mut">${decToAm(q.eff)} after fee</div>`:''}</td>
+          <td class="${ev==null?'':ev>=0?'pos':'neg'}">${ev==null?'–':pct(ev)}</td>
+          <td class="${vs==null?'':vs>=0?'pos':'neg'}">${b===pick?'your pick':vs==null?'–':pct(vs)}</td>
+          <td class="mut">${h==null?'–':h.toFixed(1)+'%'}</td><td class="mut">${ageTxt(q)}</td></tr>`;}).join('')}
+    </table></div>
+    <div class="mut" style="margin-top:8px">"Your edge vs it" = how much more profit your pick pays than that book on a win. Tap a row to make it your pick.</div>
+    ${other.length?`<hr><div class="mut">Other side: ${other.map(n=>{ const best=S.books.map(b=>g.prices[b]&&g.prices[b][n]?{b,q:g.prices[b][n]}:null).filter(Boolean).sort((a,c)=>c.q.eff-a.q.eff)[0];
+      return `${esc(n)} best ${best?fmtAm(best.q.am)+' at '+esc(bookName(best.b)):'–'}`;}).join(' · ')}</div>`:''}
+    ${P&&P.link?`<div style="margin-top:12px"><a class="lnk" href="${esc(P.link)}" target="_blank" rel="noopener">Open ${esc(bookName(pick))} ›</a></div>`:''}
+  </div></div>`;
+  const close=()=>document.getElementById('sheet').innerHTML='';
+  document.getElementById('sclose').onclick=close;
+  document.getElementById('sbg').onclick=e=>{ if(e.target.id==='sbg') close(); };
+  document.querySelectorAll('#sheet tr').forEach((tr,k)=>{ const r=ordered[k-1]; if(r&&r.b!==SHARP.key){ tr.style.cursor='pointer'; tr.onclick=()=>openDetail(g,name,r.b);} });
+}
+
+/* ---------- filter panel ---------- */
+let curTab='ev', fOpen=false;
+function activeFilterCount(){ const F=S.F; return [F.sport!=='all',F.market!=='all',F.books.length>0,F.maxEV!=='',F.minOdds!=='',F.maxOdds!=='',!!F.q,F.pinOnly,+F.minArb>0,+F.minEV!==FDEF.minEV].filter(Boolean).length; }
+function renderFilters(tab){
+  const el=document.getElementById('fbar');
+  if(!['ev','arbs','middles'].includes(tab)){ el.innerHTML=''; return; }
+  const F=S.F, n=activeFilterCount();
+  const opt=(arr,val)=>arr.map(([v,t])=>`<option value="${v}" ${String(v)===String(val)?'selected':''}>${esc(t)}</option>`).join('');
+  const num=(id,lab,val,ph,step=0.5)=>`<div><label for="${id}">${lab}</label><input id="${id}" type="number" step="${step}" placeholder="${ph}" value="${val}"></div>`;
+  el.innerHTML=`<details class="fpanel" ${fOpen?'open':''}><summary>Filters &amp; sort${n?` · ${n} active`:''}</summary>
+   <div class="fgrid">
+    <div><label for="f_sp">Sport</label><select id="f_sp">${opt([['all','All sports'],...S.sports.map(s=>[s,sportName(s)])],F.sport)}</select></div>
+    <div><label for="f_mk">Market</label><select id="f_mk">${opt([['all','All markets'],...MARKETS.map(m=>[m.key,m.name])],F.market)}</select></div>
+    <div class="full"><label for="f_q">Team search</label><input id="f_q" type="text" placeholder="e.g. Bears" value="${esc(F.q)}"></div>
+    ${tab==='ev'?num('f_min','Min EV %',F.minEV,'1')+num('f_max','Max EV %',F.maxEV,'no max'):''}
+    ${tab==='arbs'?num('f_arb','Min profit %',F.minArb,'0',0.1)+'<div></div>':''}
+    ${num('f_lo','Min odds',F.minOdds,'e.g. -200',5)}${num('f_hi','Max odds',F.maxOdds,'e.g. +300',5)}
+    <div class="full"><label for="f_sort">Sort by</label><select id="f_sort">${opt([['best',tab==='ev'?'Highest EV':tab==='arbs'?'Highest profit':'Best middle'],['time','Start time (soonest)'],...(tab==='ev'?[['odds','Longest odds']]:[])],F.sort)}</select></div>
+    ${tab==='ev'?`<label class="chk full"><input id="f_pin" type="checkbox" ${F.pinOnly?'checked':''}>Only when Pinnacle sets the fair price</label>`:''}
+    <div class="full"><label>Books (none checked = all)</label><div class="grid2">${S.books.map(b=>`<label class="chk"><input type="checkbox" class="f_bk" value="${b}" ${F.books.includes(b)?'checked':''}>${esc(bookName(b))}</label>`).join('')}</div></div>
+    <div class="full row" style="margin-top:8px"><button class="sec" id="f_reset">Reset filters</button>${S.hidden.length?`<button class="sec" id="f_unhide">Unhide ${S.hidden.length}</button>`:''}</div>
+   </div></details>`;
+  el.querySelector('details').ontoggle=e=>fOpen=e.target.open;
+  const upd=()=>{ const v=id=>{const x=document.getElementById(id); return x?x.value:null;};
+    F.sport=v('f_sp'); F.market=v('f_mk'); F.q=v('f_q').trim(); F.minOdds=v('f_lo'); F.maxOdds=v('f_hi'); F.sort=v('f_sort');
+    if(v('f_min')!==null){ F.minEV=parseFloat(v('f_min'))||0; F.maxEV=v('f_max'); }
+    if(v('f_arb')!==null) F.minArb=parseFloat(v('f_arb'))||0;
+    const pin=document.getElementById('f_pin'); if(pin) F.pinOnly=pin.checked;
+    F.books=[...el.querySelectorAll('.f_bk:checked')].map(i=>i.value);
+    save(); render();
+    const sm=el.querySelector('summary'), c=activeFilterCount(); sm.innerHTML=`Filters &amp; sort${c?` · ${c} active`:''}`; };
+  el.querySelectorAll('input,select').forEach(i=>{ i.oninput=upd; i.onchange=upd; });
+  document.getElementById('f_reset').onclick=()=>{ S.F={...FDEF}; save(); render(); renderFilters(tab); };
+  const uh=document.getElementById('f_unhide'); if(uh) uh.onclick=()=>{ S.hidden=[]; save(); render(); renderFilters(tab); };
 }
 
 const kellyLabel=()=>({0.25:'¼ Kelly',0.5:'½ Kelly',1:'Kelly'}[S.kellyFrac]||'Kelly');
@@ -389,11 +496,12 @@ const kellyLabel=()=>({0.25:'¼ Kelly',0.5:'½ Kelly',1:'Kelly'}[S.kellyFrac]||'
 function renderMiddles(groups){
   const el=document.getElementById('v-middles');
   if(!lastInfo){ el.innerHTML=emptyStart(); return; }
-  const list=findMiddles(groups);
+  const list=findMiddles(groups).filter(m=>passGame(m.ev,m.mkt)&&m.legs.every(l=>passOdds(l.q.am))&&!S.hidden.includes(midKey(m)));
+  if(S.F.sort==='time') list.sort((a,b)=>byTime(a.ev,b.ev));
   if(!list.length){ el.innerHTML=`<div class="empty">No middles within ${S.middleMaxLoss}% worst-case loss. Middles show up when books disagree on the spread or total number.</div>`; return; }
   el.innerHTML=`<div class="mut" style="margin-bottom:8px">Bet both sides at different numbers. If the result lands between them, both bets win. Otherwise you lose a little (or profit, if it's also an arb).</div>`+
   list.map(m=>`<div class="card">
-    <div class="row"><span class="pill ${m.miss>=0?'pg':'pw'}">${m.width} pt window</span><span class="mut">${m.mkt==='totals'?'Totals':'Spreads'}</span></div>
+    <div class="row"><span class="pill ${m.miss>=0?'pg':'pw'}">${m.width} pt window</span><span class="mut">${m.mkt==='totals'?'Totals':'Spreads'}</span><span class="grow"></span><button class="hide" data-k="${esc(midKey(m))}">Hide</button></div>
     <div class="mut" style="margin:6px 0">${gameLine(m.ev)}</div>
     <table class="stake"><tr><th>Bet</th><th>Odds</th><th>Book</th><th>Stake</th></tr>
     ${m.legs.map((l,i)=>`<tr><td>${esc(l.name)}</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(m.stakes[i])}</b></td></tr>`).join('')}</table>
@@ -418,7 +526,7 @@ function renderOdds(groups){
       <tr><th></th>${present.map(b=>`<th>${bookShort(b)}</th>`).join('')}<th>Fair</th></tr>
       ${g.names.map((n,i)=>{
         const best=Math.max(...S.books.map(b=>g.prices[b]&&g.prices[b][n]?g.prices[b][n].eff:0));
-        return `<tr><td>${esc(n)}</td>${present.map(b=>{const q=g.prices[b][n]; if(!q) return '<td class="mut">–</td>';
+        return `<tr data-gi="${CUR.indexOf(g)}" data-n="${esc(n)}" style="cursor:pointer"><td>${esc(n)} ›</td>${present.map(b=>{const q=g.prices[b][n]; if(!q) return '<td class="mut">–</td>';
           const isBest=b!==SHARP.key&&q.eff===best; return `<td class="${isBest?'best':''}">${fmtAm(q.am)}</td>`;}).join('')}
           <td class="mut">${f?decToAm(1/f.probs[i]):'–'}</td></tr>`;}).join('')}
     </table></div></div>`;
@@ -449,14 +557,14 @@ function renderSetup(){
     <label for="hpd">Hours per day you'll leave it running</label><input id="hpd" type="number" step="1" value="${S.hoursPerDay}">
     <div class="mut" id="burn" style="margin-top:6px"></div>
     <label for="age">Ignore lines older than (minutes, 0 = never)</label><input id="age" type="number" step="1" value="${S.maxAgeMin}">
-    <label class="chk"><input id="alerts" type="checkbox" ${S.alerts?'checked':''}>Beep + vibrate when a new edge (2%+ EV or arb) appears</label>
+    <label class="chk"><input id="alerts" type="checkbox" ${S.alerts?'checked':''}>Beep + vibrate when a new edge (EV above your alert level, or any arb) appears</label>
     <button class="sec" id="notif" style="width:100%">Enable phone/desktop notifications</button>
     <div class="mut" style="margin-top:4px">Auto-refresh pauses while the page is in the background, to save credits.</div>
   </div>
   <div class="card"><b>Books you can bet</b><div class="grid2">${BOOKS.map(b=>cb('bk',b.key,S.books.includes(b.key),b.name)).join('')}</div>
     <div class="mut">Pinnacle is always pulled as the sharp "fair price" reference, but never shown as a place to bet.</div></div>
   <div class="card">
-    <label for="mev">Minimum EV %</label><input id="mev" type="number" step="0.5" value="${S.minEV}">
+    <label for="mev">Alert me when EV is at least (%)</label><input id="mev" type="number" step="0.5" value="${S.minEV}">
     <label for="br">Bankroll / arb total ($)</label><input id="br" type="number" step="10" value="${S.bankroll}">
     <label for="kf">Kelly fraction</label><select id="kf">${[[0.25,'¼ Kelly (recommended)'],[0.5,'½ Kelly'],[1,'Full Kelly']].map(([v,n])=>`<option value="${v}" ${S.kellyFrac==v?'selected':''}>${n}</option>`).join('')}</select>
     <label class="chk"><input id="kfee" type="checkbox" ${S.kalshiFee?'checked':''}>Apply Kalshi trading fee</label>
@@ -498,6 +606,7 @@ function renderSetup(){
 
 /* ---------- tabs ---------- */
 function showTab(t){
+  curTab=t; renderFilters(t);
   document.querySelectorAll('#tabs a').forEach(a=>a.classList.toggle('on',a.dataset.t===t));
   ['ev','arbs','middles','odds','setup'].forEach(x=>document.getElementById('v-'+x).hidden=x!==t);
   if(t==='setup') renderSetup();
