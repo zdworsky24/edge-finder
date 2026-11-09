@@ -56,7 +56,9 @@
   .hide{background:none;border:0;color:var(--mut);font-size:12px;padding:2px 4px;font-weight:600}
   .sheetbg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:20;display:flex;align-items:flex-end;justify-content:center}
   .sheet{background:var(--bg);border:1px solid var(--line);border-radius:18px 18px 0 0;width:100%;max-width:640px;max-height:88vh;overflow:auto;padding:14px 14px 30px}
-  .card[data-gi]{cursor:pointer}
+  .card[data-gk],tr[data-gk]{cursor:pointer;-webkit-tap-highlight-color:rgba(79,140,255,.25)}
+  button.cmp{padding:5px 10px;font-size:12px;border-radius:8px}
+  html,body{touch-action:manipulation}
   td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad)}
   tr.pick td{background:rgba(79,140,255,.12)}
   hr{border:0;border-top:1px solid var(--line);margin:10px 0}
@@ -133,7 +135,9 @@ const passGame=(ev,market)=>(S.F.sport==='all'||ev._sport===S.F.sport)&&(S.F.mar
 const passOdds=am=>(S.F.minOdds===''||am>=+S.F.minOdds)&&(S.F.maxOdds===''||am<=+S.F.maxOdds);
 const byTime=(a,b)=>new Date(a.commence_time)-new Date(b.commence_time);
 let EVENTS = [];
-let CUR = [];              // groups currently on screen (for tap-to-detail)           // raw events from the API
+let CUR = new Map();       // groups currently on screen (for tap-to-detail)
+let pendingRender=false;
+const gk=g=>g.ev.id+'|'+g.gkey;           // raw events from the API
 let lastInfo = null;       // {time, remaining, used, demo}
 
 /* ---------- odds math ---------- */
@@ -331,13 +335,14 @@ function renderWindow(){
 }
 function render(){
   const shown=EVENTS.filter(inWindow);
-  const groups=buildGroups(shown); CUR=groups;
+  const groups=buildGroups(shown); CUR=new Map(groups.map(g=>[gk(g),g]));
+  if(document.getElementById('sheet').innerHTML){ pendingRender=true; return; }  // don't redraw under an open sheet
   const m=document.getElementById('meta');
   if(lastInfo){
     m.textContent=(lastInfo.demo?'DEMO DATA · ':'')+`${shown.length}${shown.length!==EVENTS.length?' of '+EVENTS.length:''} games · updated ${lastInfo.time.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`+
       (lastInfo.remaining!=null?` · ${Number(lastInfo.remaining).toLocaleString()} credits left`:'');
   }
-  renderEV(groups); renderArbs(groups); renderMiddles(groups); renderOdds(groups);
+  renderEV(groups); renderArbs(groups); renderMiddles(groups); renderOdds(groups); bindTaps();
 }
 
 /* ---------- new-edge alerts ---------- */
@@ -349,7 +354,7 @@ function checkNew(groups){
   if(seen){ newKeys=new Set([...keys].filter(k=>!seen.has(k))); if(newKeys.size && S.alerts) alertUser(newKeys.size); }
   seen=keys;
   // re-render cards so NEW badges show
-  renderEV(groups); renderArbs(groups);
+  if(!document.getElementById('sheet').innerHTML){ renderEV(groups); renderArbs(groups); bindTaps(); }
 }
 let actx=null;
 function beep(){ try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); const o=actx.createOscillator(),gn=actx.createGain();
@@ -383,12 +388,12 @@ function renderEV(groups){
     const cls=x.ev>=3?'pg':'pw';
     const nw=newKeys.has(evKey(x))?'<span class="pill pl">NEW</span>':'';
     const h=holdPct(x.g,x.book);
-    return `<div class="card" data-gi="${CUR.indexOf(x.g)}" data-n="${esc(x.name)}" data-b="${x.book}">
-      <div class="row"><span class="pill ${cls}">+${x.ev.toFixed(1)}% EV</span>${nw}<span class="mut">${esc(x.g.label)}</span><span class="grow"></span>${betLink(x.book,x.q)}<button class="hide" data-k="${esc(evKey(x))}">Hide</button></div>
+    return `<div class="card" data-gk="${esc(gk(x.g))}" data-n="${esc(x.name)}" data-b="${x.book}">
+      <div class="row"><span class="pill ${cls}">+${x.ev.toFixed(1)}% EV</span>${nw}<span class="mut">${esc(x.g.label)}</span><span class="grow"></span>${betLink(x.book,x.q)}<button class="cmp sec" data-cmp>Compare</button><button class="hide" data-k="${esc(evKey(x))}">Hide</button></div>
       <div class="big" style="margin-top:6px">${esc(x.name)} ${x.g.market==='h2h'?'ML':''} <span class="price">${fmtAm(x.q.am)}</span> <span class="mut">at ${esc(bookName(x.book))}</span></div>
       <div class="mut">${gameLine(x.g.ev)}</div>
       <div class="mut" style="margin-top:4px">Fair ${decToAm(1/x.fairProb)} (${esc(x.fairSrc)}) · win ${(x.fairProb*100).toFixed(1)}% · ${kellyLabel()} stake ${money(x.stake)}</div>
-      <div class="mut">Tap to compare all books · line updated ${ageTxt(x.q)}${h!=null?` · ${esc(bookName(x.book))} hold ${h.toFixed(1)}%`:''}</div>
+      <div class="mut">Line updated ${ageTxt(x.q)}${h!=null?` · ${esc(bookName(x.book))} hold ${h.toFixed(1)}%`:''}</div>
     </div>`;}).join('');
 }
 
@@ -402,7 +407,7 @@ function renderArbs(groups){
       <div class="row"><span class="pill pg">+${a.profitPct.toFixed(2)}% guaranteed</span>${newKeys.has(arbKey(a))?'<span class="pill pl">NEW</span>':''}<span class="mut">${esc(a.g.label)}</span><span class="grow"></span><button class="hide" data-k="${esc(arbKey(a))}">Hide</button></div>
       <div class="mut" style="margin:6px 0">${gameLine(a.g.ev)}</div>
       <table class="stake"><tr><th>Bet</th><th>Odds</th><th>Book</th><th>Stake</th></tr>
-      ${a.legs.map(l=>`<tr data-gi="${CUR.indexOf(a.g)}" data-n="${esc(l.name)}" data-b="${l.book}" style="cursor:pointer"><td>${esc(l.name)} ›</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(l.stake)}</b></td></tr>`).join('')}</table>
+      ${a.legs.map(l=>`<tr data-gk="${esc(gk(a.g))}" data-n="${esc(l.name)}" data-b="${l.book}" style="cursor:pointer"><td>${esc(l.name)} ›</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(l.stake)}</b></td></tr>`).join('')}</table>
       <div class="mut" style="margin-top:6px">Total ${money(S.bankroll)} → returns ${money(a.payout)} either way (profit ${money(a.payout-S.bankroll)})</div>
       <div class="row" style="margin-top:6px">${a.legs.map(l=>betLink(l.book,l.q)).join(' ')}</div>
     </div>`).join('');
@@ -413,11 +418,15 @@ document.addEventListener('click',e=>{ const b=e.target.closest&&e.target.closes
   S.hidden.push(b.dataset.k); save(); render(); renderFilters(curTab); });
 
 /* ---------- bet detail sheet ---------- */
-document.addEventListener('click',e=>{
-  if(e.target.closest('a,button,input,select,summary,label')) return;
-  const t=e.target.closest('[data-gi]'); if(!t||t.closest('#sheet')) return;
-  const g=CUR[+t.dataset.gi]; if(g) openDetail(g,t.dataset.n,t.dataset.b||null);
-});
+function bindTaps(){
+  document.querySelectorAll('main section [data-gk]').forEach(el=>{
+    el.onclick=e=>{
+      const t=e.target;
+      if(t.closest('a,input,select,summary,label')||(t.closest('button')&&!t.closest('[data-cmp]'))) return;
+      const g=CUR.get(el.dataset.gk); if(g) openDetail(g,el.dataset.n,el.dataset.b||null);
+    };
+  });
+}
 function openDetail(g,name,pick){
   const f=fair(g), i=g.names.indexOf(name), p=f?f.probs[i]:null;
   const rows=[...S.books,SHARP.key].filter(b=>g.prices[b]&&g.prices[b][name]).map(b=>({b,q:g.prices[b][name]}));
@@ -449,7 +458,7 @@ function openDetail(g,name,pick){
       return `${esc(n)} best ${best?fmtAm(best.q.am)+' at '+esc(bookName(best.b)):'–'}`;}).join(' · ')}</div>`:''}
     ${P&&P.link?`<div style="margin-top:12px"><a class="lnk" href="${esc(P.link)}" target="_blank" rel="noopener">Open ${esc(bookName(pick))} ›</a></div>`:''}
   </div></div>`;
-  const close=()=>document.getElementById('sheet').innerHTML='';
+  const close=()=>{ document.getElementById('sheet').innerHTML=''; if(pendingRender){ pendingRender=false; render(); } };
   document.getElementById('sclose').onclick=close;
   document.getElementById('sbg').onclick=e=>{ if(e.target.id==='sbg') close(); };
   document.querySelectorAll('#sheet tr').forEach((tr,k)=>{ const r=ordered[k-1]; if(r&&r.b!==SHARP.key){ tr.style.cursor='pointer'; tr.onclick=()=>openDetail(g,name,r.b);} });
@@ -526,7 +535,7 @@ function renderOdds(groups){
       <tr><th></th>${present.map(b=>`<th>${bookShort(b)}</th>`).join('')}<th>Fair</th></tr>
       ${g.names.map((n,i)=>{
         const best=Math.max(...S.books.map(b=>g.prices[b]&&g.prices[b][n]?g.prices[b][n].eff:0));
-        return `<tr data-gi="${CUR.indexOf(g)}" data-n="${esc(n)}" style="cursor:pointer"><td>${esc(n)} ›</td>${present.map(b=>{const q=g.prices[b][n]; if(!q) return '<td class="mut">–</td>';
+        return `<tr data-gk="${esc(gk(g))}" data-n="${esc(n)}" style="cursor:pointer"><td>${esc(n)} ›</td>${present.map(b=>{const q=g.prices[b][n]; if(!q) return '<td class="mut">–</td>';
           const isBest=b!==SHARP.key&&q.eff===best; return `<td class="${isBest?'best':''}">${fmtAm(q.am)}</td>`;}).join('')}
           <td class="mut">${f?decToAm(1/f.probs[i]):'–'}</td></tr>`;}).join('')}
     </table></div></div>`;
