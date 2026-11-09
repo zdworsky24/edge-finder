@@ -45,6 +45,9 @@
   .filters{display:flex;gap:8px;margin-bottom:10px}
   .filters select{flex:1}
   .stake td,.stake th{text-align:left}
+  .chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0 10px}
+  .chip{flex:0 0 auto;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--mut);font-size:13px;font-weight:600}
+  .chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
   hr{border:0;border-top:1px solid var(--line);margin:10px 0}
 </style>
 </head>
@@ -62,6 +65,7 @@
     <a href="#odds" data-t="odds">Odds</a>
     <a href="#setup" data-t="setup">Settings</a>
   </nav>
+  <div class="chips" id="win"></div>
 </header>
 <main>
   <div id="errors"></div>
@@ -103,7 +107,7 @@ const DEFAULTS = {
   apiKey:'', sports:['americanfootball_nfl','americanfootball_ncaaf','basketball_nba','basketball_ncaab','icehockey_nhl'],
   books:BOOKS.map(b=>b.key), markets:['h2h','spreads','totals'],
   minEV:1, bankroll:100, kellyFrac:0.25, kalshiFee:true, fees:{novig:0,polymarket:0}, includeLive:false,
-  autoSec:0, maxAgeMin:15, middleMaxLoss:2, alerts:true, hoursPerDay:8
+  autoSec:0, maxAgeMin:15, windowH:0, middleMaxLoss:2, alerts:true, hoursPerDay:8
 };
 function load(){ try{ return Object.assign({},DEFAULTS,JSON.parse(localStorage.getItem('edgefinder')||'{}')); }catch(e){ return {...DEFAULTS}; } }
 function save(){ try{ localStorage.setItem('edgefinder',JSON.stringify(S)); }catch(e){} }
@@ -257,7 +261,7 @@ async function refresh(){
   }));
   EVENTS=all; lastInfo={time:new Date(),remaining:rem,used,demo:false};
   btn.disabled=false; btn.textContent='Refresh';
-  setErr(errs); render(); checkNew(buildGroups(EVENTS)); updateAutoLabel();
+  setErr(errs); render(); checkNew(buildGroups(EVENTS.filter(inWindow))); updateAutoLabel();
 }
 const sportName = k => (SPORTS.find(s=>s.key===k)||{name:k}).name;
 
@@ -297,11 +301,19 @@ const money=v=>'$'+v.toFixed(2);
 const betLink=(b,q)=>q.link?`<a class="lnk" href="${esc(q.link)}" target="_blank" rel="noopener">Open ${esc(bookName(b))} ›</a>`:'';
 function setErr(list){ document.getElementById('errors').innerHTML=list.map(e=>`<div class="err">${esc(e)}</div>`).join(''); }
 
+const WINDOWS=[[6,'Next 6 hrs'],[24,'24 hrs'],[72,'3 days'],[168,'7 days'],[0,'All']];
+const inWindow=ev=>{ if(!S.windowH) return true; const t=new Date(ev.commence_time).getTime(); return t-Date.now()<=S.windowH*3600e3; };
+function renderWindow(){
+  const el=document.getElementById('win');
+  el.innerHTML=WINDOWS.map(([h,n])=>`<button class="chip ${S.windowH===h?'on':''}" data-h="${h}">${n}</button>`).join('');
+  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.windowH=+b.dataset.h; save(); renderWindow(); render(); });
+}
 function render(){
-  const groups=buildGroups(EVENTS);
+  const shown=EVENTS.filter(inWindow);
+  const groups=buildGroups(shown);
   const m=document.getElementById('meta');
   if(lastInfo){
-    m.textContent=(lastInfo.demo?'DEMO DATA · ':'')+`${EVENTS.length} games · updated ${lastInfo.time.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`+
+    m.textContent=(lastInfo.demo?'DEMO DATA · ':'')+`${shown.length}${shown.length!==EVENTS.length?' of '+EVENTS.length:''} games · updated ${lastInfo.time.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`+
       (lastInfo.remaining!=null?` · ${Number(lastInfo.remaining).toLocaleString()} credits left`:'');
   }
   renderEV(groups); renderArbs(groups); renderMiddles(groups); renderOdds(groups);
@@ -492,7 +504,7 @@ function showTab(t){
 }
 document.querySelectorAll('#tabs a').forEach(a=>a.onclick=e=>{e.preventDefault();showTab(a.dataset.t);});
 document.getElementById('refresh').onclick=refresh;
-render();
+renderWindow(); render();
 showTab(S.apiKey?'ev':'setup');
 setupAuto();
 </script>
