@@ -21,6 +21,14 @@ const json = (obj, status) =>
 
 export default {
   async fetch(req, env) {
+    // never let an error escape without CORS headers (the browser would only say "failed to fetch")
+    try { return await handle(req, env); }
+    catch (e) { return json({ message: 'Server error: ' + (e && e.message ? e.message : String(e)) }, 500); }
+  },
+};
+
+async function handle(req, env) {
+  {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     const url = new URL(req.url);
     if (url.pathname === '/') return json({ ok: true, service: 'edge-finder-proxy' }, 200);
@@ -30,6 +38,14 @@ export default {
     const code = url.searchParams.get('code') || '';
     if (!codes.length || !codes.includes(code)) return json({ message: 'Invalid access code' }, 401);
     if (!env.ODDS_API_KEY) return json({ message: 'Server is missing ODDS_API_KEY' }, 500);
+
+    // /diag: checks the setup without spending odds credits
+    if (url.pathname === '/diag') {
+      const r = await fetch('https://api.the-odds-api.com/v4/sports/?apiKey=' + encodeURIComponent(String(env.ODDS_API_KEY).trim()));
+      let msg = ''; if (!r.ok) { try { msg = (await r.json()).message || ''; } catch (e) {} }
+      return json({ ok: r.ok, code: 'accepted', key: r.ok ? 'working' : `rejected by The Odds API (${r.status}) ${msg}`.trim(),
+        remaining: r.headers.get('x-requests-remaining') }, r.ok ? 200 : 502);
+    }
 
     // only allow the two endpoints the app uses
     const m = url.pathname.match(/^\/v4\/sports\/([a-z0-9_]+)\/(odds|scores)\/?$/);
@@ -48,7 +64,7 @@ export default {
     if (!PENDING.has(key)) {
       PENDING.set(key, (async () => {
         const authed = new URL(key);
-        authed.searchParams.set('apiKey', env.ODDS_API_KEY);
+        authed.searchParams.set('apiKey', String(env.ODDS_API_KEY).trim());
         const r = await fetch(authed.toString());
         const entry = { t: Date.now(), status: r.status, body: await r.text(), h: {} };
         for (const k of ['x-requests-remaining', 'x-requests-used']) { const v = r.headers.get(k); if (v) entry.h[k] = v; }
@@ -60,8 +76,8 @@ export default {
       })().finally(() => PENDING.delete(key)));
     }
     return respond(await PENDING.get(key), 'MISS');
-  },
-};
+  }
+}
 
 function respond(e, cache) {
   return new Response(e.body, { status: e.status, headers: { ...CORS, 'content-type': 'application/json', ...e.h, 'x-cache': cache } });

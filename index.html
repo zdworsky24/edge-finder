@@ -695,9 +695,11 @@ function renderSetup(){
   document.getElementById('src').onchange=e=>{ const sv=e.target.value==='server'; document.getElementById('srcKey').hidden=sv; document.getElementById('srcSrv').hidden=!sv; };
   document.getElementById('testSrv').onclick=async()=>{ const m=document.getElementById('srvMsg'), base=document.getElementById('srv').value.trim().replace(/\/+$/,''), c=document.getElementById('code').value.trim();
     m.textContent='Testing…';
-    try{ const r=await fetch(`${base}/v4/sports/basketball_nba/scores/?code=${encodeURIComponent(c)}&daysFrom=1`);
-      m.textContent=r.ok?'Connected ✓':r.status===401?'Server found, but that access code is wrong':`Server answered ${r.status}`; }
-    catch(e){ m.textContent='Couldn\'t reach that address. Check it and try again.'; } };
+    if(!/^https:\/\//.test(base)){ m.textContent='The address must start with https://'; return; }
+    try{ const r=await fetch(`${base}/diag?code=${encodeURIComponent(c)}`); let j={}; try{ j=await r.json(); }catch(e){}
+      m.textContent=r.ok?`Connected ✓ (${j.remaining??'?'} credits left)`:r.status===401?'Server found, but that access code doesn\'t match ACCESS_CODES'
+        :r.status===404?'Server found, but it\'s running old code. Paste the latest worker.js and Deploy.':`Server says: ${j.message||j.key||r.status}`; }
+    catch(e){ m.textContent=`Couldn't reach the server (${e.message}). Open the address in your browser: if it shows {"ok":true…}, paste the latest worker.js and Deploy.`; } };
   document.getElementById('mkInv').onclick=()=>{ const base=document.getElementById('srv').value.trim().replace(/\/+$/,''), c=document.getElementById('invCode').value.trim(), o=document.getElementById('invOut');
     if(!base||!c){ o.textContent='Enter the server address above and a code for them.'; return; }
     const link=`${location.origin}${location.pathname}?server=${encodeURIComponent(base)}&code=${encodeURIComponent(c)}`;
