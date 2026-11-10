@@ -329,15 +329,20 @@ async function refresh(){
   btn.disabled=true; btn.textContent='Loading…';
   const books=pullBooks().join(',');   // every 10 books = billed as 1 region
   const all=[]; let rem=null,used=null;
+  let fellBack=false;
+  const getOdds=async(sp,bk)=>fetch(`${API()}/v4/sports/${sp}/odds/?${AUTH()}&bookmakers=${bk}&markets=${S.markets.join(',')}&oddsFormat=american&includeLinks=true`);
   await Promise.all(S.sports.map(async sp=>{
-    const url=`${API()}/v4/sports/${sp}/odds/?${AUTH()}&bookmakers=${books}&markets=${S.markets.join(',')}&oddsFormat=american&includeLinks=true`;
     try{
-      const r=await fetch(url);
+      let r;
+      try{ r=await getOdds(sp,books); }
+      catch(e){ // a network/CORS failure: retry with only the books you bet + Pinnacle
+        r=await getOdds(sp,[...S.books,SHARP.key].join(',')); fellBack=true; }
       rem=r.headers.get('x-requests-remaining')??rem; used=r.headers.get('x-requests-used')??used;
       if(!r.ok){ let m=''; try{m=(await r.json()).message||'';}catch(e){} throw new Error(`${r.status} ${m}`); }
       const data=await r.json(); data.forEach(e=>e._sport=sp); all.push(...data);
-    }catch(e){ errs.push(`${sportName(sp)}: ${e.message||e}`); }
+    }catch(e){ errs.push(`${sportName(sp)}: ${e.message||e} (${S.src==='server'?'shared server: check ⚙ Settings → Test connection':'your API key'})`); }
   }));
+  if(fellBack&&!errs.length) errs.push('Some watch books caused an error, so this refresh used only your Bet books. Tell Claude so it can fix the book list.');
   EVENTS=all; lastInfo={time:new Date(),remaining:rem,used,demo:false};
   btn.disabled=false; btn.textContent='Refresh';
   updateCLV(buildGroups(EVENTS));
@@ -395,7 +400,7 @@ function render(){
   if(document.getElementById('sheet').innerHTML){ pendingRender=true; return; }  // don't redraw under an open sheet
   const m=document.getElementById('meta');
   if(lastInfo){
-    m.textContent=(lastInfo.demo?'DEMO DATA · ':'')+`${shown.length}${shown.length!==EVENTS.length?' of '+EVENTS.length:''} games · updated ${lastInfo.time.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`+
+    m.textContent=(lastInfo.demo?'DEMO DATA · ':S.src==='server'?'VIA SHARED SERVER · ':'VIA YOUR KEY · ')+`${shown.length}${shown.length!==EVENTS.length?' of '+EVENTS.length:''} games · updated ${lastInfo.time.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`+
       (lastInfo.remaining!=null?` · ${Number(lastInfo.remaining).toLocaleString()} credits left`:'');
   }
   renderEV(groups); renderArbs(groups); renderMiddles(groups); renderOdds(groups); bindTaps();
