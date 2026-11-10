@@ -166,11 +166,18 @@ const DEFAULTS = {
   apiKey:'', sports:['americanfootball_nfl','americanfootball_ncaaf','basketball_nba','basketball_ncaab','icehockey_nhl'],
   books:MINE.slice(), watch:BOOKS.map(b=>b.key).filter(k=>!MINE.includes(k)), markets:['h2h','spreads','totals'],
   minEV:2, bankroll:100, kellyFrac:0.25, kalshiFee:true, fees:{novig:0,polymarket:0}, includeLive:false,
-  autoSec:0, maxAgeMin:15, windowH:0, unit:10, middleMaxLoss:2, alerts:true, hoursPerDay:8
+  autoSec:0, maxAgeMin:15, windowH:0, unit:10, src:'key', server:'', code:'', middleMaxLoss:2, alerts:true, hoursPerDay:8
 };
 function load(){ try{ return Object.assign({},DEFAULTS,JSON.parse(localStorage.getItem('edgefinder')||'{}')); }catch(e){ return {...DEFAULTS}; } }
 function save(){ try{ localStorage.setItem('edgefinder',JSON.stringify(S)); }catch(e){} }
 let S = load();
+// invite links: ?server=...&code=... switch this browser to the shared server
+(()=>{ try{ const q=new URLSearchParams(location.search); if(q.get('server')&&q.get('code')){
+  S.src='server'; S.server=q.get('server'); S.code=q.get('code'); localStorage.setItem('edgefinder',JSON.stringify(S));
+  history.replaceState(null,'',location.pathname+location.hash); } }catch(e){} })();
+const API=()=>S.src==='server'?(S.server||'').trim().replace(/\/+$/,''):'https://api.the-odds-api.com';
+const AUTH=()=>S.src==='server'?'code='+encodeURIComponent(S.code||''):'apiKey='+encodeURIComponent(S.apiKey||'');
+const hasAuth=()=>S.src==='server'?!!(S.server&&S.code):!!S.apiKey;
 S.watch=(S.watch||[]).filter(k=>!S.books.includes(k));
 const pullBooks=()=>[...new Set([...S.books,...S.watch,SHARP.key])];
 const isWatch=k=>S.watch.includes(k);
@@ -318,12 +325,12 @@ function findMiddles(groups){
 /* ---------- data ---------- */
 async function refresh(){
   const btn=document.getElementById('refresh'), errs=[];
-  if(!S.apiKey){ showTab('setup'); setErr(['Add your API key first.']); return; }
+  if(!hasAuth()){ showTab('setup'); setErr([S.src==='server'?'Add the server address and access code first.':'Add your API key first.']); return; }
   btn.disabled=true; btn.textContent='Loading…';
   const books=pullBooks().join(',');   // every 10 books = billed as 1 region
   const all=[]; let rem=null,used=null;
   await Promise.all(S.sports.map(async sp=>{
-    const url=`https://api.the-odds-api.com/v4/sports/${sp}/odds/?apiKey=${encodeURIComponent(S.apiKey)}&bookmakers=${books}&markets=${S.markets.join(',')}&oddsFormat=american&includeLinks=true`;
+    const url=`${API()}/v4/sports/${sp}/odds/?${AUTH()}&bookmakers=${books}&markets=${S.markets.join(',')}&oddsFormat=american&includeLinks=true`;
     try{
       const r=await fetch(url);
       rem=r.headers.get('x-requests-remaining')??rem; used=r.headers.get('x-requests-used')??used;
@@ -418,7 +425,7 @@ function alertUser(n){
 let timer=null, countdown=0;
 function setupAuto(){
   clearInterval(timer); timer=null;
-  if(!S.autoSec||!S.apiKey) return updateAutoLabel();
+  if(!S.autoSec||!hasAuth()) return updateAutoLabel();
   countdown=S.autoSec;
   timer=setInterval(()=>{ if(document.hidden) return; countdown--; if(countdown<=0){ countdown=S.autoSec; refresh(); } updateAutoLabel(); },1000);
   updateAutoLabel();
@@ -602,16 +609,30 @@ function renderOdds(groups){
 }
 
 function emptyStart(){
-  return `<div class="empty">Tap <b>Refresh</b> to pull live odds${S.apiKey?'':' (add your API key in Settings first)'}.<br><br><button class="sec" onclick="loadDemo()">Try demo data</button></div>`;
+  return `<div class="empty">Tap <b>Refresh</b> to pull live odds${hasAuth()?'':' (set up your data source in ⚙ Settings first)'}.<br><br><button class="sec" onclick="loadDemo()">Try demo data</button></div>`;
 }
 
 function renderSetup(){
   const el=document.getElementById('v-setup');
   const cb=(name,val,checked,label)=>`<label class="chk"><input type="checkbox" name="${name}" value="${val}" ${checked?'checked':''}>${esc(label)}</label>`;
   el.innerHTML=`<div class="card">
-    <label for="k">The Odds API key</label>
-    <input id="k" type="password" placeholder="Paste your key" value="${esc(S.apiKey)}" autocomplete="off">
-    <div class="mut" style="margin-top:4px">Saved only in this browser. Get one at the-odds-api.com.</div>
+    <b>Data source</b>
+    <select id="src" style="margin-top:6px"><option value="key" ${S.src!=='server'?'selected':''}>My own Odds API key</option><option value="server" ${S.src==='server'?'selected':''}>Shared server + access code</option></select>
+    <div id="srcKey" ${S.src==='server'?'hidden':''}>
+      <label for="k">The Odds API key</label>
+      <input id="k" type="password" placeholder="Paste your key" value="${esc(S.apiKey)}" autocomplete="off">
+      <div class="mut" style="margin-top:4px">Saved only in this browser. Get one at the-odds-api.com.</div>
+    </div>
+    <div id="srcSrv" ${S.src==='server'?'':'hidden'}>
+      <label for="srv">Server address</label>
+      <input id="srv" type="text" placeholder="https://edge-finder-api.yourname.workers.dev" value="${esc(S.server)}" autocomplete="off">
+      <label for="code">Access code</label>
+      <input id="code" type="password" value="${esc(S.code)}" autocomplete="off">
+      <div class="row" style="margin-top:8px"><button class="sec" id="testSrv">Test connection</button><span class="mut" id="srvMsg"></span></div>
+      <label for="inv">Invite someone (make a code for each person on the server)</label>
+      <div class="row"><input id="invCode" type="text" placeholder="their access code" style="flex:1"><button class="sec" id="mkInv">Make link</button></div>
+      <div class="mut" id="invOut" style="margin-top:6px;word-break:break-all"></div>
+    </div>
   </div>
   <div class="card"><b>Sports</b><div class="grid2">${SPORTS.map(s=>cb('sp',s.key,S.sports.includes(s.key),s.name)).join('')}</div>
     <hr><b>Markets</b><div class="grid2">${MARKETS.map(m=>cb('mk',m.key,S.markets.includes(m.key),m.name)).join('')}</div>
@@ -651,6 +672,7 @@ function renderSetup(){
   document.getElementById('saveBtn').onclick=()=>{
     const vals=n=>[...el.querySelectorAll(`input[name=${n}]:checked`)].map(i=>i.value);
     S.apiKey=document.getElementById('k').value.trim();
+    S.src=document.getElementById('src').value; S.server=document.getElementById('srv').value.trim(); S.code=document.getElementById('code').value.trim();
     S.sports=vals('sp'); S.markets=vals('mk');
     const modes=[...el.querySelectorAll('.bkmode')].map(x=>[x.dataset.k,x.value]);
     S.books=modes.filter(m=>m[1]==='bet').map(m=>m[0]); S.watch=modes.filter(m=>m[1]==='watch').map(m=>m[0]);
@@ -670,6 +692,17 @@ function renderSetup(){
     save(); setupAuto(); if(lastInfo) render(); renderSetup();
     const b=document.getElementById('saveBtn'); b.textContent='Saved ✓'; setTimeout(()=>b.textContent='Save settings',1200);
   };
+  document.getElementById('src').onchange=e=>{ const sv=e.target.value==='server'; document.getElementById('srcKey').hidden=sv; document.getElementById('srcSrv').hidden=!sv; };
+  document.getElementById('testSrv').onclick=async()=>{ const m=document.getElementById('srvMsg'), base=document.getElementById('srv').value.trim().replace(/\/+$/,''), c=document.getElementById('code').value.trim();
+    m.textContent='Testing…';
+    try{ const r=await fetch(`${base}/v4/sports/basketball_nba/scores/?code=${encodeURIComponent(c)}&daysFrom=1`);
+      m.textContent=r.ok?'Connected ✓':r.status===401?'Server found, but that access code is wrong':`Server answered ${r.status}`; }
+    catch(e){ m.textContent='Couldn\'t reach that address. Check it and try again.'; } };
+  document.getElementById('mkInv').onclick=()=>{ const base=document.getElementById('srv').value.trim().replace(/\/+$/,''), c=document.getElementById('invCode').value.trim(), o=document.getElementById('invOut');
+    if(!base||!c){ o.textContent='Enter the server address above and a code for them.'; return; }
+    const link=`${location.origin}${location.pathname}?server=${encodeURIComponent(base)}&code=${encodeURIComponent(c)}`;
+    o.innerHTML=`${esc(link)}<br><button class="sec" id="cpInv" style="margin-top:6px">Copy link</button>`;
+    document.getElementById('cpInv').onclick=async()=>{ try{ await navigator.clipboard.writeText(link); toast('Link copied'); }catch(e){ toast('Press and hold the link to copy it'); } }; };
   const bkcost=()=>{ const n=new Set([...el.querySelectorAll('.bkmode')].filter(x=>x.value!=='off').map(x=>x.dataset.k)).size+1, r=Math.ceil(n/10);
     document.getElementById('bkcost').innerHTML=`Pulling <b>${n}</b> books (incl. Pinnacle) → billed as <b>${r}</b> region${r>1?'s':''}: each refresh costs about <b>${S.sports.length*S.markets.length*r}</b> credits. Every 10 books adds another region.`; };
   el.querySelectorAll('.bkmode').forEach(x=>x.onchange=bkcost); bkcost();
@@ -759,13 +792,13 @@ function grade(b,H,A){
   return null;
 }
 async function autoGrade(){
-  if(!S.apiKey) return toast('Add your API key in Settings first');
+  if(!hasAuth()) return toast('Set up your data source in Settings first');
   const open=BETS.filter(b=>b.status==='open'&&b.evId&&Date.now()-new Date(b.commence).getTime()>2*3600e3);
   if(!open.length) return toast('No finished games to grade yet');
   let n=0;
   for(const sp of [...new Set(open.map(b=>b.sport))]){
     try{
-      const r=await fetch(`https://api.the-odds-api.com/v4/sports/${sp}/scores/?apiKey=${encodeURIComponent(S.apiKey)}&daysFrom=3`);
+      const r=await fetch(`${API()}/v4/sports/${sp}/scores/?${AUTH()}&daysFrom=3`);
       if(!r.ok) continue;
       const byId=new Map((await r.json()).map(e=>[e.id,e]));
       for(const b of open.filter(b=>b.sport===sp)){
@@ -899,7 +932,7 @@ document.querySelectorAll('#tabs a').forEach(a=>a.onclick=e=>{e.preventDefault()
 document.getElementById('refresh').onclick=refresh;
 document.getElementById('gear').onclick=()=>showTab('setup');
 renderWindow(); render();
-showTab(S.apiKey?'ev':'setup');
+showTab(hasAuth()?'ev':'setup');
 setupAuto();
 </script>
 </body>
