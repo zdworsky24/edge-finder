@@ -57,6 +57,7 @@
   .filters select{flex:1}
   .stake td,.stake th{text-align:left}
   .chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0 10px}
+  .chips[hidden]{display:none}
   .chip{flex:0 0 auto;padding:6px 11px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--mut);font:600 12px var(--mono)}
   .chip.on{background:var(--text);border-color:var(--text);color:var(--bg)}
   .fpanel{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:10px}
@@ -73,6 +74,14 @@
   tr.pick td{background:rgba(200,244,58,.1)}
   .sheet th:first-child,.sheet td:first-child{background:var(--bg)}
   .sheet tr.pick td:first-child{background:#1c2108}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px}
+  .stat .v{font:700 20px var(--mono)} .stat .k{font:600 11px var(--mono);color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  #toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:30}
+  #toast div{background:var(--text);color:var(--bg);font-weight:700;padding:10px 16px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap}
+  .btnrow button{padding:7px 11px;font-size:13px}
+  .won{color:var(--good)} .lost{color:var(--bad)}
   hr{border:0;border-top:1px dashed var(--line);margin:10px 0}
 </style>
 </head>
@@ -80,6 +89,7 @@
 <header>
   <div class="top">
     <h1><span class="mark">E</span>Edge Finder</h1>
+    <button class="sec" id="gear" aria-label="Settings" style="padding:9px 11px">⚙</button>
     <button id="refresh">Refresh</button>
   </div>
   <div class="meta" id="meta">No data yet. Add your API key in Settings, then tap Refresh.</div>
@@ -90,7 +100,7 @@
     <a href="#arbs" data-t="arbs">Arbs</a>
     <a href="#middles" data-t="middles">Middles</a>
     <a href="#odds" data-t="odds">Odds</a>
-    <a href="#setup" data-t="setup">Settings</a>
+    <a href="#bets" data-t="bets">Bets</a>
   </nav>
 <main>
   <div id="fbar"></div>
@@ -100,7 +110,9 @@
   <section id="v-arbs" hidden></section>
   <section id="v-middles" hidden></section>
   <section id="v-odds" hidden></section>
+  <section id="v-bets" hidden></section>
   <section id="v-setup" hidden></section>
+  <div id="toast"></div>
 </main>
 
 <script>
@@ -134,7 +146,7 @@ const DEFAULTS = {
   apiKey:'', sports:['americanfootball_nfl','americanfootball_ncaaf','basketball_nba','basketball_ncaab','icehockey_nhl'],
   books:BOOKS.map(b=>b.key), markets:['h2h','spreads','totals'],
   minEV:2, bankroll:100, kellyFrac:0.25, kalshiFee:true, fees:{novig:0,polymarket:0}, includeLive:false,
-  autoSec:0, maxAgeMin:15, windowH:0, middleMaxLoss:2, alerts:true, hoursPerDay:8
+  autoSec:0, maxAgeMin:15, windowH:0, unit:10, middleMaxLoss:2, alerts:true, hoursPerDay:8
 };
 function load(){ try{ return Object.assign({},DEFAULTS,JSON.parse(localStorage.getItem('edgefinder')||'{}')); }catch(e){ return {...DEFAULTS}; } }
 function save(){ try{ localStorage.setItem('edgefinder',JSON.stringify(S)); }catch(e){} }
@@ -258,7 +270,7 @@ function findMiddles(groups){
   const res=[], byEv=new Map();
   for(const g of groups){ if(g.market==='h2h') continue; if(!S.includeLive&&isLive(g.ev)) continue;
     (byEv.get(g.ev.id)||byEv.set(g.ev.id,[]).get(g.ev.id)).push(g); }
-  const bestLeg=(g,n)=>{ let best=null; for(const b of activeBooks()){ const q=g.prices[b]&&g.prices[b][n]; if(q&&fresh(q)&&(!best||q.eff>best.q.eff)) best={book:b,q,name:n}; } return best; };
+  const bestLeg=(g,n)=>{ let best=null; for(const b of activeBooks()){ const q=g.prices[b]&&g.prices[b][n]; if(q&&fresh(q)&&(!best||q.eff>best.q.eff)) best={book:b,q,name:n,g}; } return best; };
   for(const gs of byEv.values()){
     for(const mkt of ['totals','spreads']){
       const list=gs.filter(g=>g.market===mkt);
@@ -298,6 +310,7 @@ async function refresh(){
   }));
   EVENTS=all; lastInfo={time:new Date(),remaining:rem,used,demo:false};
   btn.disabled=false; btn.textContent='Refresh';
+  updateCLV(buildGroups(EVENTS));
   setErr(errs); render(); checkNew(buildGroups(EVENTS.filter(inWindow))); updateAutoLabel();
 }
 const sportName = k => (SPORTS.find(s=>s.key===k)||{name:k}).name;
@@ -327,6 +340,7 @@ function loadDemo(){
       bk2('hardrockbet',[-140,124]),bk2('novig',[-128,122]),bk2('kalshi',[-127,121])]},
   ];
   lastInfo={time:new Date(),remaining:null,used:null,demo:true};
+  updateCLV(buildGroups(EVENTS));
   setErr([]); render(); showTab('ev');
 }
 
@@ -401,7 +415,7 @@ function renderEV(groups){
     const nw=newKeys.has(evKey(x))?'<span class="pill pl">NEW</span>':'';
     const h=holdPct(x.g,x.book);
     return `<div class="card" data-gk="${esc(gk(x.g))}" data-n="${esc(x.name)}" data-b="${x.book}">
-      <div class="row"><span class="pill ${cls}">+${x.ev.toFixed(1)}% EV</span>${nw}<span class="mut">${esc(x.g.label)}</span><span class="grow"></span>${betLink(x.book,x.q)}<button class="cmp sec" data-cmp>Compare</button><button class="hide" data-k="${esc(evKey(x))}">Hide</button></div>
+      <div class="row"><span class="pill ${cls}">+${x.ev.toFixed(1)}% EV</span>${nw}<span class="mut">${esc(x.g.label)}</span><span class="grow"></span>${betLink(x.book,x.q)}<button class="cmp sec" data-cmp>Compare</button><button class="cmp" data-log>Log</button><button class="hide" data-k="${esc(evKey(x))}">Hide</button></div>
       <div class="big" style="margin-top:6px">${esc(x.name)} ${x.g.market==='h2h'?'ML':''} <span class="price">${fmtAm(x.q.am)}</span> <span class="mut">at ${esc(bookName(x.book))}</span></div>
       <div class="mut">${gameLine(x.g.ev)}</div>
       <div class="mut" style="margin-top:4px">Fair ${decToAm(1/x.fairProb)} (${esc(x.fairSrc)}) · win ${(x.fairProb*100).toFixed(1)}% · ${kellyLabel()} stake ${money(x.stake)}</div>
@@ -412,11 +426,13 @@ function renderEV(groups){
 function renderArbs(groups){
   const el=document.getElementById('v-arbs');
   if(!lastInfo){ el.innerHTML=emptyStart(); return; }
+  ARBMAP.clear();
   const list=findArbs(groups).filter(a=>passGame(a.g.ev,a.g.market)&&a.profitPct>=S.F.minArb&&a.legs.every(l=>passOdds(l.q.am))&&!S.hidden.includes(arbKey(a)));
   if(S.F.sort==='time') list.sort((a,b)=>byTime(a.g.ev,b.g.ev));
+  list.forEach(a=>ARBMAP.set(arbKey(a),a));
   if(!list.length){ el.innerHTML=`<div class="empty">No arbitrage matching your filters right now. True arbs are rare and usually last seconds to minutes, so refresh often around line moves.</div>`; return; }
   el.innerHTML=list.map(a=>`<div class="card">
-      <div class="row"><span class="pill pg">+${a.profitPct.toFixed(2)}% guaranteed</span>${newKeys.has(arbKey(a))?'<span class="pill pl">NEW</span>':''}<span class="mut">${esc(a.g.label)}</span><span class="grow"></span><button class="hide" data-k="${esc(arbKey(a))}">Hide</button></div>
+      <div class="row"><span class="pill pg">+${a.profitPct.toFixed(2)}% guaranteed</span>${newKeys.has(arbKey(a))?'<span class="pill pl">NEW</span>':''}<span class="mut">${esc(a.g.label)}</span><span class="grow"></span><button class="cmp" data-arb="${esc(arbKey(a))}">Log both</button><button class="hide" data-k="${esc(arbKey(a))}">Hide</button></div>
       <div class="mut" style="margin:6px 0">${gameLine(a.g.ev)}</div>
       <table class="stake"><tr><th>Bet</th><th>Odds</th><th>Book</th><th>Stake</th></tr>
       ${a.legs.map(l=>`<tr data-gk="${esc(gk(a.g))}" data-n="${esc(l.name)}" data-b="${l.book}" style="cursor:pointer"><td>${esc(l.name)} ›</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(l.stake)}</b></td></tr>`).join('')}</table>
@@ -434,8 +450,9 @@ function bindTaps(){
   document.querySelectorAll('main section [data-gk]').forEach(el=>{
     el.onclick=e=>{
       const t=e.target;
-      if(t.closest('a,input,select,summary,label')||(t.closest('button')&&!t.closest('[data-cmp]'))) return;
-      const g=CUR.get(el.dataset.gk); if(g) openDetail(g,el.dataset.n,el.dataset.b||null);
+      if(t.closest('a,input,select,summary,label')||(t.closest('button')&&!t.closest('[data-cmp],[data-log]'))) return;
+      const g=CUR.get(el.dataset.gk); if(!g) return;
+      if(t.closest('[data-log]')) openLog(g,el.dataset.n,el.dataset.b); else openDetail(g,el.dataset.n,el.dataset.b||null);
     };
   });
 }
@@ -468,8 +485,9 @@ function openDetail(g,name,pick){
     <div class="mut" style="margin-top:8px">"Edge vs" = how much more profit your pick pays than that book on a win. Tap a row to make it your pick.</div>
     ${other.length?`<hr><div class="mut">Other side: ${other.map(n=>{ const best=S.books.map(b=>g.prices[b]&&g.prices[b][n]?{b,q:g.prices[b][n]}:null).filter(Boolean).sort((a,c)=>c.q.eff-a.q.eff)[0];
       return `${esc(n)} best ${best?fmtAm(best.q.am)+' at '+esc(bookName(best.b)):'–'}`;}).join(' · ')}</div>`:''}
-    ${P&&P.link?`<div style="margin-top:12px"><a class="lnk" href="${esc(P.link)}" target="_blank" rel="noopener">Open ${esc(bookName(pick))} ›</a></div>`:''}
+    <div class="row" style="margin-top:12px">${P?`<button id="slog">Log this bet</button>`:''}${P&&P.link?`<a class="lnk" href="${esc(P.link)}" target="_blank" rel="noopener">Open ${esc(bookName(pick))} ›</a>`:''}</div>
   </div></div>`;
+  const sl=document.getElementById('slog'); if(sl) sl.onclick=()=>openLog(g,name,pick);
   const close=()=>{ document.getElementById('sheet').innerHTML=''; if(pendingRender){ pendingRender=false; render(); } };
   document.getElementById('sclose').onclick=close;
   document.getElementById('sbg').onclick=e=>{ if(e.target.id==='sbg') close(); };
@@ -519,10 +537,11 @@ function renderMiddles(groups){
   if(!lastInfo){ el.innerHTML=emptyStart(); return; }
   const list=findMiddles(groups).filter(m=>passGame(m.ev,m.mkt)&&m.legs.every(l=>passOdds(l.q.am))&&!S.hidden.includes(midKey(m)));
   if(S.F.sort==='time') list.sort((a,b)=>byTime(a.ev,b.ev));
+  MIDMAP.clear(); list.forEach(m=>MIDMAP.set(midKey(m),m));
   if(!list.length){ el.innerHTML=`<div class="empty">No middles within ${S.middleMaxLoss}% worst-case loss. Middles show up when books disagree on the spread or total number.</div>`; return; }
   el.innerHTML=`<div class="mut" style="margin-bottom:8px">Bet both sides at different numbers. If the result lands between them, both bets win. Otherwise you lose a little (or profit, if it's also an arb).</div>`+
   list.map(m=>`<div class="card">
-    <div class="row"><span class="pill ${m.miss>=0?'pg':'pw'}">${m.width} pt window</span><span class="mut">${m.mkt==='totals'?'Totals':'Spreads'}</span><span class="grow"></span><button class="hide" data-k="${esc(midKey(m))}">Hide</button></div>
+    <div class="row"><span class="pill ${m.miss>=0?'pg':'pw'}">${m.width} pt window</span><span class="mut">${m.mkt==='totals'?'Totals':'Spreads'}</span><span class="grow"></span><button class="cmp" data-mid="${esc(midKey(m))}">Log both</button><button class="hide" data-k="${esc(midKey(m))}">Hide</button></div>
     <div class="mut" style="margin:6px 0">${gameLine(m.ev)}</div>
     <table class="stake"><tr><th>Bet</th><th>Odds</th><th>Book</th><th>Stake</th></tr>
     ${m.legs.map((l,i)=>`<tr><td>${esc(l.name)}</td><td class="price">${fmtAm(l.q.am)}</td><td>${esc(bookName(l.book))}<div class="mut">${ageTxt(l.q)}</div></td><td><b>${money(m.stakes[i])}</b></td></tr>`).join('')}</table>
@@ -587,6 +606,7 @@ function renderSetup(){
   <div class="card">
     <label for="mev">Alert me when EV is at least (%)</label><input id="mev" type="number" step="0.5" value="${S.minEV}">
     <label for="br">Bankroll / arb total ($)</label><input id="br" type="number" step="10" value="${S.bankroll}">
+    <label for="unit">Default bet size when there's no Kelly stake ($)</label><input id="unit" type="number" step="1" value="${S.unit||10}">
     <label for="kf">Kelly fraction</label><select id="kf">${[[0.25,'¼ Kelly (recommended)'],[0.5,'½ Kelly'],[1,'Full Kelly']].map(([v,n])=>`<option value="${v}" ${S.kellyFrac==v?'selected':''}>${n}</option>`).join('')}</select>
     <label class="chk"><input id="kfee" type="checkbox" ${S.kalshiFee?'checked':''}>Apply Kalshi trading fee</label>
     <label for="nf">Novig fee (% of winnings)</label><input id="nf" type="number" step="0.5" value="${S.fees.novig||0}">
@@ -605,6 +625,7 @@ function renderSetup(){
     S.bankroll=parseFloat(document.getElementById('br').value)||100;
     S.kellyFrac=parseFloat(document.getElementById('kf').value)||0.25;
     S.kalshiFee=document.getElementById('kfee').checked;
+    S.unit=parseFloat(document.getElementById('unit').value)||10;
     S.fees={novig:parseFloat(document.getElementById('nf').value)||0,polymarket:parseFloat(document.getElementById('pf').value)||0};
     S.includeLive=document.getElementById('live').checked;
     S.autoSec=parseInt(document.getElementById('auto').value)||0;
@@ -625,15 +646,221 @@ function renderSetup(){
   document.getElementById('notif').onclick=async()=>{ try{ const p=await Notification.requestPermission(); document.getElementById('notif').textContent=p==='granted'?'Notifications on ✓':'Notifications blocked'; }catch(e){ document.getElementById('notif').textContent='Not supported in this browser'; } beep(); };
 }
 
+
+/* ================= BET LOG ================= */
+const ARBMAP=new Map(), MIDMAP=new Map();
+let BETS=(()=>{ try{ return JSON.parse(localStorage.getItem('edgefinder_bets')||'[]'); }catch(e){ return []; } })();
+const saveBets=()=>{ try{ localStorage.setItem('edgefinder_bets',JSON.stringify(BETS)); }catch(e){} };
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+function toast(msg){ const t=document.getElementById('toast'); t.innerHTML=`<div>${esc(msg)}</div>`; clearTimeout(toast.t); toast.t=setTimeout(()=>t.innerHTML='',2200); }
+const closeSheet=()=>{ document.getElementById('sheet').innerHTML=''; if(pendingRender){ pendingRender=false; render(); } };
+
+function makeBet(g,name,book,am,stake,tag){
+  const f=fair(g), i=g.names.indexOf(name), p=f?f.probs[i]:null, dec=amToDec(am), eff=effDec(book,dec);
+  return {id:uid(), created:Date.now(), evId:g.ev.id, sport:g.ev._sport, commence:g.ev.commence_time, home:g.ev.home_team, away:g.ev.away_team,
+    market:g.market, gkey:g.gkey, label:g.label, point:g.point, name, book, am, dEff:eff, stake:+stake,
+    fairAtLog:p, evAtLog:p!=null?(p*eff-1)*100:null, closeFair:null, closeAt:null, status:'open', profit:0, tag:tag||'ev'};
+}
+function suggestStake(g,name,book){
+  const f=fair(g), q=g.prices[book]&&g.prices[book][name];
+  if(f&&q){ const p=f.probs[g.names.indexOf(name)], k=(p*q.eff-1)/(q.eff-1); if(k>0){ const st=S.bankroll*k*S.kellyFrac; if(st>=1) return Math.round(st); } }
+  return S.unit||10;
+}
+function openLog(g,name,book){
+  const q=g.prices[book]&&g.prices[book][name]; if(!q) return;
+  document.getElementById('sheet').innerHTML=`<div class="sheetbg" id="sbg"><div class="sheet">
+    <div class="row"><div class="grow big">Log bet</div><button class="sec" id="sclose">Cancel</button></div>
+    <div class="mut" style="margin:6px 0">${gameLine(g.ev)}</div>
+    <div class="big">${esc(name)} <span class="mut">· ${esc(g.label)} · ${esc(bookName(book))}</span></div>
+    <div class="fgrid">
+      <div><label for="lg_odds">Odds you got</label><input id="lg_odds" type="number" step="1" value="${q.am}"></div>
+      <div><label for="lg_stake">Stake ($)</label><input id="lg_stake" type="number" step="1" value="${suggestStake(g,name,book)}"></div>
+    </div>
+    <div class="mut" style="margin-top:6px">Change the odds if the price moved before you placed it, so your log stays accurate.</div>
+    <button id="lg_save" style="width:100%;margin-top:12px">Save to bet log</button>
+  </div></div>`;
+  document.getElementById('sclose').onclick=closeSheet;
+  document.getElementById('sbg').onclick=e=>{ if(e.target.id==='sbg') closeSheet(); };
+  document.getElementById('lg_save').onclick=()=>{
+    const am=parseInt(document.getElementById('lg_odds').value), st=parseFloat(document.getElementById('lg_stake').value);
+    if(!am||Math.abs(am)<100||!(st>0)) return toast('Enter valid odds (e.g. -110, +150) and stake');
+    BETS.unshift(makeBet(g,name,book,am,st,'ev')); saveBets(); closeSheet(); toast('Logged ✓'); if(curTab==='bets') renderBets();
+  };
+}
+function logLegs(legs,stakes,g0,tag){
+  legs.forEach((l,i)=>{ const g=l.g||g0; BETS.unshift(makeBet(g,l.name,l.book,l.q.am,Math.round(stakes[i]*100)/100,tag)); });
+  saveBets(); toast(`Logged ${legs.length} bets ✓`);
+}
+document.addEventListener('click',e=>{
+  const a=e.target.closest&&e.target.closest('[data-arb]'); if(a){ const x=ARBMAP.get(a.dataset.arb); if(x) logLegs(x.legs,x.legs.map(l=>l.stake),x.g,'arb'); return; }
+  const m=e.target.closest&&e.target.closest('[data-mid]'); if(m){ const x=MIDMAP.get(m.dataset.mid); if(x) logLegs(x.legs,x.stakes,null,'middle'); }
+});
+
+/* CLV: keep the latest fair price for open bets until the game starts */
+function updateCLV(groups){
+  const m=new Map(groups.map(g=>[gk(g),g])); let ch=false;
+  for(const b of BETS){
+    if(b.status!=='open'||!b.evId||Date.now()>=new Date(b.commence).getTime()) continue;
+    const g=m.get(b.evId+'|'+b.gkey); if(!g) continue;
+    const f=fair(g), i=g.names.indexOf(b.name); if(!f||i<0) continue;
+    b.closeFair=f.probs[i]; b.closeAt=Date.now(); ch=true;
+  }
+  if(ch) saveBets();
+}
+const clvPct=b=>b.closeFair!=null&&b.dEff?(b.closeFair*b.dEff-1)*100:null;
+
+/* settle */
+function settle(id,status){
+  const b=BETS.find(x=>x.id===id); if(!b) return;
+  b.status=status; b.settledAt=Date.now();
+  b.profit=status==='won'?b.stake*((b.dEff||amToDec(b.am))-1):status==='lost'?-b.stake:0;
+}
+function grade(b,H,A){
+  if(b.market==='h2h'){ if(H===A) return 'push'; return b.name===(H>A?b.home:b.away)?'won':'lost'; }
+  if(b.market==='spreads'){ const home=b.name.startsWith(b.home+' '); const pt=home?b.point:-b.point; const mg=(home?H-A:A-H)+pt; return mg>0?'won':mg<0?'lost':'push'; }
+  if(b.market==='totals'){ const t=H+A; if(t===b.point) return 'push'; return (t>b.point)===b.name.startsWith('Over')?'won':'lost'; }
+  return null;
+}
+async function autoGrade(){
+  if(!S.apiKey) return toast('Add your API key in Settings first');
+  const open=BETS.filter(b=>b.status==='open'&&b.evId&&Date.now()-new Date(b.commence).getTime()>2*3600e3);
+  if(!open.length) return toast('No finished games to grade yet');
+  let n=0;
+  for(const sp of [...new Set(open.map(b=>b.sport))]){
+    try{
+      const r=await fetch(`https://api.the-odds-api.com/v4/sports/${sp}/scores/?apiKey=${encodeURIComponent(S.apiKey)}&daysFrom=3`);
+      if(!r.ok) continue;
+      const byId=new Map((await r.json()).map(e=>[e.id,e]));
+      for(const b of open.filter(b=>b.sport===sp)){
+        const e=byId.get(b.evId); if(!e||!e.completed||!e.scores) continue;
+        const sc=t=>parseFloat((e.scores.find(s=>s.name===t)||{}).score);
+        const H=sc(b.home),A=sc(b.away); if(isNaN(H)||isNaN(A)) continue;
+        const res=grade(b,H,A); if(res){ settle(b.id,res); b.final=`${b.away} ${A} – ${b.home} ${H}`; n++; }
+      }
+    }catch(e){}
+  }
+  saveBets(); renderBets(); toast(n?`Graded ${n} bet${n>1?'s':''} ✓`:'Nothing gradable yet (scores can lag a bit)');
+}
+
+/* manual bet */
+function openManual(){
+  const opts=[...BOOKS.map(b=>[b.key,b.name]),['other','Other']].map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join('');
+  document.getElementById('sheet').innerHTML=`<div class="sheetbg" id="sbg"><div class="sheet">
+    <div class="row"><div class="grow big">Add a bet</div><button class="sec" id="sclose">Cancel</button></div>
+    <label for="mb_desc">Bet</label><input id="mb_desc" type="text" placeholder="e.g. Bears ML, Caleb Williams o225.5 pass yds">
+    <div class="fgrid">
+      <div><label for="mb_book">Book</label><select id="mb_book">${opts}</select></div>
+      <div><label for="mb_sport">Sport</label><select id="mb_sport">${SPORTS.map(s=>`<option value="${s.key}">${s.name}</option>`).join('')}<option value="other">Other</option></select></div>
+      <div><label for="mb_odds">Odds</label><input id="mb_odds" type="number" step="1" placeholder="-110"></div>
+      <div><label for="mb_stake">Stake ($)</label><input id="mb_stake" type="number" step="1" value="${S.unit||10}"></div>
+      <div class="full"><label for="mb_date">Game date</label><input id="mb_date" type="date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#0a0a0b;color:var(--text);font:inherit"></div>
+    </div>
+    <button id="mb_save" style="width:100%;margin-top:12px">Save</button>
+  </div></div>`;
+  document.getElementById('sclose').onclick=closeSheet;
+  document.getElementById('sbg').onclick=e=>{ if(e.target.id==='sbg') closeSheet(); };
+  document.getElementById('mb_save').onclick=()=>{
+    const v=id=>document.getElementById(id).value, am=parseInt(v('mb_odds')), st=parseFloat(v('mb_stake')), book=v('mb_book');
+    if(!v('mb_desc').trim()||!am||Math.abs(am)<100||!(st>0)) return toast('Fill in the bet, odds and stake');
+    BETS.unshift({id:uid(),created:Date.now(),evId:null,sport:v('mb_sport'),commence:new Date(v('mb_date')+'T12:00:00').toISOString(),home:'',away:'',
+      market:'other',label:'Manual',name:v('mb_desc').trim(),book,am,dEff:effDec(book,amToDec(am)),stake:st,fairAtLog:null,evAtLog:null,closeFair:null,status:'open',profit:0,tag:'manual'});
+    saveBets(); closeSheet(); renderBets(); toast('Added ✓');
+  };
+}
+
+/* export / backup */
+function download(name,text,type){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500); }
+function exportCSV(){
+  const cols=['date_logged','game_time','sport','game','market','bet','book','odds','stake','status','profit','ev_at_log_pct','clv_pct','type','final'];
+  const q=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+  const rows=BETS.map(b=>[new Date(b.created).toISOString(),b.commence,sportName(b.sport),b.home?`${b.away} @ ${b.home}`:'',b.label,b.name,bookName(b.book),b.am,b.stake,b.status,
+    (b.profit||0).toFixed(2),b.evAtLog!=null?b.evAtLog.toFixed(2):'',clvPct(b)!=null?clvPct(b).toFixed(2):'',b.tag,b.final||''].map(q).join(','));
+  download(`edge-finder-bets-${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows].join('\n'),'text/csv');
+}
+function backup(){ download(`edge-finder-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify({version:1,bets:BETS},null,1),'application/json'); }
+function restore(file){
+  const r=new FileReader(); r.onload=()=>{ try{ const d=JSON.parse(r.result); const inc=Array.isArray(d)?d:d.bets; if(!Array.isArray(inc)) throw 0;
+    const have=new Set(BETS.map(b=>b.id)); const add=inc.filter(b=>b&&b.id&&!have.has(b.id)); BETS=[...add,...BETS].sort((a,b)=>b.created-a.created);
+    saveBets(); renderBets(); toast(`Restored ${add.length} bet${add.length===1?'':'s'}`); }catch(e){ toast('That file isn\'t an Edge Finder backup'); } }; r.readAsText(file);
+}
+
+/* results tab */
+let betsView='open';
+function summarize(list){
+  const st=list.filter(b=>['won','lost','push'].includes(b.status));
+  const staked=st.reduce((a,b)=>a+b.stake,0), profit=st.reduce((a,b)=>a+(b.profit||0),0);
+  const w=st.filter(b=>b.status==='won').length,l=st.filter(b=>b.status==='lost').length,p=st.filter(b=>b.status==='push').length;
+  const clvs=list.map(clvPct).filter(v=>v!=null);
+  const exp=st.filter(b=>b.evAtLog!=null).reduce((a,b)=>a+b.stake*b.evAtLog/100,0);
+  return {n:st.length,staked,profit,roi:staked?profit/staked*100:0,w,l,p,clv:clvs.length?clvs.reduce((a,c)=>a+c,0)/clvs.length:null,clvN:clvs.length,beat:clvs.filter(c=>c>0).length,exp};
+}
+function renderBets(){
+  const el=document.getElementById('v-bets'), s=summarize(BETS), sgn=v=>(v>=0?'+':'−')+money(Math.abs(v));
+  const open=BETS.filter(b=>b.status==='open');
+  const list=betsView==='open'?open:betsView==='settled'?BETS.filter(b=>b.status!=='open'):BETS;
+  const brk=(keyFn,nameFn)=>{ const m=new Map(); BETS.forEach(b=>{ const k=keyFn(b); (m.get(k)||m.set(k,[]).get(k)).push(b); });
+    const rows=[...m.entries()].map(([k,v])=>({k,s:summarize(v)})).filter(r=>r.s.n||r.s.clvN).sort((a,b)=>b.s.profit-a.s.profit);
+    return rows.length?`<div class="scroll"><table><tr><th></th><th>Bets</th><th>Profit</th><th>ROI</th><th>CLV</th></tr>${rows.map(r=>`<tr><td>${esc(nameFn(r.k))}</td><td>${r.s.n}</td><td class="${r.s.profit>=0?'pos':'neg'}">${sgn(r.s.profit)}</td><td>${r.s.n?r.s.roi.toFixed(1)+'%':'–'}</td><td>${r.s.clv!=null?(r.s.clv>=0?'+':'')+r.s.clv.toFixed(1)+'%':'–'}</td></tr>`).join('')}</table></div>`:'<div class="mut">Settle a few bets to see this.</div>'; };
+  el.innerHTML=`
+  <div class="stats">
+    <div class="stat"><div class="k">Profit</div><div class="v ${s.profit>=0?'won':'lost'}">${sgn(s.profit)}</div></div>
+    <div class="stat"><div class="k">ROI</div><div class="v">${s.n?s.roi.toFixed(1)+'%':'–'}</div></div>
+    <div class="stat"><div class="k">Record</div><div class="v">${s.w}-${s.l}${s.p?'-'+s.p:''}</div></div>
+    <div class="stat"><div class="k">Avg CLV</div><div class="v ${s.clv!=null?(s.clv>=0?'won':'lost'):''}">${s.clv!=null?(s.clv>=0?'+':'')+s.clv.toFixed(1)+'%':'–'}</div></div>
+  </div>
+  ${s.n?`<div class="card"><div class="mut">Expected profit from EV: <b>${sgn(s.exp)}</b> · Actual: <b class="${s.profit>=0?'won':'lost'}">${sgn(s.profit)}</b></div>
+    <div class="mut">${s.clvN?`Beat the closing line on ${s.beat} of ${s.clvN} bets. `:''}Over a few hundred bets, actual profit should drift toward expected. CLV tells you sooner.</div></div>`:''}
+  <div class="btnrow" style="margin-bottom:10px">
+    <button id="b_add">+ Add bet</button><button class="sec" id="b_grade">Auto-grade${open.length?` (${open.length} open)`:''}</button>
+  </div>
+  <div class="chips" style="padding-top:0">${[['open',`Open (${open.length})`],['settled','Settled'],['all','All']].map(([v,n])=>`<button class="chip ${betsView===v?'on':''}" data-bv="${v}">${n}</button>`).join('')}</div>
+  ${list.length?list.map(betCard).join(''):`<div class="empty">${betsView==='open'?'No open bets. Tap <b>Log</b> on any +EV bet, arb or middle to add it here.':'No bets here yet.'}</div>`}
+  <details class="fpanel" style="margin-top:14px"><summary>Breakdown by book</summary>${brk(b=>b.book,bookName)}</details>
+  <details class="fpanel"><summary>Breakdown by sport</summary>${brk(b=>b.sport,sportName)}</details>
+  <details class="fpanel"><summary>Breakdown by type</summary>${brk(b=>b.tag,k=>({ev:'+EV',arb:'Arbitrage',middle:'Middle',manual:'Manual'}[k]||k))}</details>
+  <details class="fpanel"><summary>Export &amp; backup</summary>
+    <div class="mut" style="margin:6px 0 10px">Your log is saved in this browser on this device. Back it up now and then. Restore merges a backup into this device.</div>
+    <div class="btnrow"><button class="sec" id="b_csv">Export CSV</button><button class="sec" id="b_bak">Download backup</button>
+    <label class="sec" style="display:inline-block;margin:0;padding:7px 11px;border:1px solid var(--line);border-radius:8px;font-size:13px;cursor:pointer">Restore backup<input id="b_res" type="file" accept=".json,application/json" hidden></label></div>
+  </details>`;
+  el.querySelectorAll('[data-bv]').forEach(b=>b.onclick=()=>{ betsView=b.dataset.bv; renderBets(); });
+  document.getElementById('b_add').onclick=openManual;
+  document.getElementById('b_grade').onclick=autoGrade;
+  document.getElementById('b_csv').onclick=exportCSV;
+  document.getElementById('b_bak').onclick=backup;
+  document.getElementById('b_res').onchange=e=>{ if(e.target.files[0]) restore(e.target.files[0]); e.target.value=''; };
+  el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ const [id,st]=b.dataset.st.split('|');
+    if(st==='del'){ BETS=BETS.filter(x=>x.id!==id); }
+    else if(st==='open'){ const x=BETS.find(x=>x.id===id); if(x){ x.status='open'; x.profit=0; } }
+    else settle(id,st);
+    saveBets(); renderBets(); });
+}
+function betCard(b){
+  const c=clvPct(b), started=Date.now()>=new Date(b.commence).getTime();
+  const pill=b.status==='open'?`<span class="pill pw">${started?'IN PLAY':'OPEN'}</span>`:b.status==='won'?`<span class="pill pg">WON ${'+'+money(b.profit)}</span>`:b.status==='lost'?`<span class="pill pl">LOST −${money(b.stake)}</span>`:`<span class="pill pw">PUSH</span>`;
+  const when=new Date(b.commence).toLocaleString([], {weekday:'short',month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit'});
+  return `<div class="card">
+    <div class="row">${pill}<span class="mut">${esc(b.label)}${b.tag!=='ev'&&b.tag!=='manual'?' · '+esc(b.tag):''}</span><span class="grow"></span>
+      ${b.status==='open'?`<button class="hide" data-st="${b.id}|del">Delete</button>`:`<button class="hide" data-st="${b.id}|open">Undo</button>`}</div>
+    <div class="big" style="margin-top:6px">${esc(b.name)} <span class="price">${fmtAm(b.am)}</span> <span class="mut">at ${esc(bookName(b.book))} · ${money(b.stake)}</span></div>
+    <div class="mut">${b.home?`${esc(b.away)} @ ${esc(b.home)} · `:''}${esc(sportName(b.sport))} · ${when}${b.final?` · Final: ${esc(b.final)}`:''}</div>
+    <div class="mut">${b.evAtLog!=null?`EV when logged ${(b.evAtLog>=0?'+':'')+b.evAtLog.toFixed(1)}%`:''}${c!=null?` · CLV <b class="${c>=0?'won':'lost'}">${(c>=0?'+':'')+c.toFixed(1)}%</b>${b.status==='open'&&!started?' (so far)':''}`:''}</div>
+    ${b.status==='open'?`<div class="btnrow" style="margin-top:8px"><button class="sec" data-st="${b.id}|won">Won</button><button class="sec" data-st="${b.id}|lost">Lost</button><button class="sec" data-st="${b.id}|push">Push</button></div>`:''}
+  </div>`;
+}
+
 /* ---------- tabs ---------- */
 function showTab(t){
   curTab=t; renderFilters(t);
   document.querySelectorAll('#tabs a').forEach(a=>a.classList.toggle('on',a.dataset.t===t));
-  ['ev','arbs','middles','odds','setup'].forEach(x=>document.getElementById('v-'+x).hidden=x!==t);
+  ['ev','arbs','middles','odds','bets','setup'].forEach(x=>document.getElementById('v-'+x).hidden=x!==t);
+  document.getElementById('win').hidden=(t==='bets'||t==='setup');
   if(t==='setup') renderSetup();
+  if(t==='bets') renderBets();
 }
 document.querySelectorAll('#tabs a').forEach(a=>a.onclick=e=>{e.preventDefault();showTab(a.dataset.t);});
 document.getElementById('refresh').onclick=refresh;
+document.getElementById('gear').onclick=()=>showTab('setup');
 renderWindow(); render();
 showTab(S.apiKey?'ev':'setup');
 setupAuto();

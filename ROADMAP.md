@@ -21,10 +21,14 @@ Built and working with live odds from The Odds API:
 
 ### Step 1 — Prove the edges are real (next 2–4 weeks) ← WE ARE HERE
 - [ ] Use the app daily; note anything missing or confusing
-- [ ] Build a **bet log**: record bets from the app, track results, profit and **CLV** (closing line value)
+- [x] Build a **bet log** (done Nov 10): one-tap logging, auto-grading via scores, CLV, profit/ROI, breakdowns, CSV + backup
 - [ ] After 3–4 weeks, check: are we consistently beating the closing line?
 
 ### Step 2 — Shared backend + waitlist
+- [ ] **Automatic bet sync** from sportsbook accounts via a sync partner (e.g. SharpSports BetSync — "Plaid for sportsbooks"); needs the backend + a business contract
+- [ ] Pull Kalshi / Polymarket positions directly from their official APIs
+- [ ] **State selector:** show only books legal in each user's state; add more books (BetRivers, ESPN BET, bet365, etc.)
+- [ ] Bet log synced to user accounts (today it lives in one browser)
 - [ ] One server pulls odds once and serves every user, so data costs are shared
 - [ ] User accounts
 - [ ] Simple landing page + waitlist
@@ -45,8 +49,12 @@ Built and working with live odds from The Odds API:
 - Daily edge summary
 - More books/markets as accounts are added
 
-## Differentiation ideas
-- Prediction markets (Kalshi, Novig, Polymarket) treated as first-class
-- Mobile-first design
-- Illinois/Midwest focus
-- AI explanations built on real sports knowledge
+## Positioning
+**Pitch:** OddsJam-level edges for sportsbooks *and* prediction markets, with tracking built in, at a fraction of the price.
+
+1. **Prediction markets first** — Kalshi/Novig/Polymarket with fees built in, exchange-vs-book arbs (lead wedge)
+2. **Simple, low price** — free tier + one paid tier (~$25–40/mo)
+3. **Built for newer bettors** — plain-English "why this is +EV" (AI)
+4. **Tracking and finding in one app** — replaces Pikkit + OddsJam
+5. **Account health** — warn when betting patterns look sharp to a book
+6. **Mobile-first, fast to act** — push alerts, one tap to bet slip
