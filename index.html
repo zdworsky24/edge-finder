@@ -176,7 +176,7 @@ const pullBooks=()=>[...new Set([...S.books,...S.watch,SHARP.key])];
 const isWatch=k=>S.watch.includes(k);
 const FDEF={sport:'all',market:'all',books:[],minEV:1,maxEV:'',minOdds:'',maxOdds:'',q:'',sort:'best',pinOnly:false,minArb:0};
 S.F=Object.assign({},FDEF,S.F||{}); S.hidden=S.hidden||[];
-const activeBooks=()=>S.F.books.length?S.books.filter(b=>S.F.books.includes(b)):S.books;
+const activeBooks=()=>{ const sel=S.F.books.filter(b=>S.books.includes(b)||(S.watch||[]).includes(b)); return sel.length?sel:S.books; };
 const passGame=(ev,market)=>(S.F.sport==='all'||ev._sport===S.F.sport)&&(S.F.market==='all'||market===S.F.market)&&
   (!S.F.q||(ev.home_team+' '+ev.away_team).toLowerCase().includes(S.F.q.toLowerCase()));
 const passOdds=am=>(S.F.minOdds===''||am>=+S.F.minOdds)&&(S.F.maxOdds===''||am<=+S.F.maxOdds);
@@ -537,7 +537,8 @@ function renderFilters(tab){
     ${num('f_lo','Min odds',F.minOdds,'e.g. -200',5)}${num('f_hi','Max odds',F.maxOdds,'e.g. +300',5)}
     <div class="full"><label for="f_sort">Sort by</label><select id="f_sort">${opt([['best',tab==='ev'?'Highest EV':tab==='arbs'?'Highest profit':'Best middle'],['time','Start time (soonest)'],...(tab==='ev'?[['odds','Longest odds']]:[])],F.sort)}</select></div>
     ${tab==='ev'?`<label class="chk full"><input id="f_pin" type="checkbox" ${F.pinOnly?'checked':''}>Only when Pinnacle sets the fair price</label>`:''}
-    <div class="full"><label>Books (none checked = all)</label><div class="grid2">${S.books.map(b=>`<label class="chk"><input type="checkbox" class="f_bk" value="${b}" ${F.books.includes(b)?'checked':''}>${esc(bookName(b))}</label>`).join('')}</div></div>
+    <div class="full"><label>Your books (none checked = all your books)</label><div class="grid2">${S.books.map(b=>`<label class="chk"><input type="checkbox" class="f_bk" value="${b}" ${F.books.includes(b)?'checked':''}>${esc(bookName(b))}</label>`).join('')}</div></div>
+    ${S.watch.length?`<div class="full"><label>Watch books</label><div class="mut" style="margin-bottom:4px">Check one to also show edges there (e.g. a book you're thinking of joining).</div><div class="grid2">${S.watch.map(b=>`<label class="chk"><input type="checkbox" class="f_bk" value="${b}" ${F.books.includes(b)?'checked':''}>${esc(bookName(b))}${(BOOKS.find(x=>x.key===b)||{}).grp==='off'?' <span class="mut">(offshore)</span>':''}</label>`).join('')}</div></div>`:''}
     <div class="full row" style="margin-top:8px"><button class="sec" id="f_reset">Reset filters</button>${S.hidden.length?`<button class="sec" id="f_unhide">Unhide ${S.hidden.length}</button>`:''}</div>
    </div></details>`;
   el.querySelector('details').ontoggle=e=>fOpen=e.target.open;
@@ -653,7 +654,7 @@ function renderSetup(){
     S.sports=vals('sp'); S.markets=vals('mk');
     const modes=[...el.querySelectorAll('.bkmode')].map(x=>[x.dataset.k,x.value]);
     S.books=modes.filter(m=>m[1]==='bet').map(m=>m[0]); S.watch=modes.filter(m=>m[1]==='watch').map(m=>m[0]);
-    S.F.books=S.F.books.filter(b=>S.books.includes(b));
+    S.F.books=S.F.books.filter(b=>S.books.includes(b)||S.watch.includes(b));
     S.minEV=parseFloat(document.getElementById('mev').value)||0;
     S.bankroll=parseFloat(document.getElementById('br').value)||100;
     S.kellyFrac=parseFloat(document.getElementById('kf').value)||0.25;
