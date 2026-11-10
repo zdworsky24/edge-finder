@@ -2,84 +2,96 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0c0d">
 <title>Edge Finder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#0f1218;--card:#181d26;--line:#262d3a;--text:#e7ebf2;--mut:#8a94a6;--acc:#4f8cff;--good:#2fbf71;--warn:#f0b429;--bad:#ef5b5b}
+  :root{--bg:#0c0c0d;--card:#161618;--card2:#1d1d20;--line:#2a2a2e;--text:#f3f1ea;--mut:#8f8d86;--acc:#c8f43a;--ink:#101203;--good:#c8f43a;--warn:#ffb547;--bad:#ff6363;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding-bottom:40px}
-  header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 14px 0}
+  html,body{touch-action:manipulation}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 "Space Grotesk",-apple-system,system-ui,sans-serif;padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+  header{position:sticky;top:0;z-index:5;background:rgba(12,12,13,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:12px 14px 0}
   .top{display:flex;align-items:center;gap:10px}
-  h1{font-size:20px;margin:0;flex:1}
-  .meta{color:var(--mut);font-size:12px;margin:4px 0 8px}
-  button{font:inherit;border:0;border-radius:10px;padding:9px 14px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
-  button.sec{background:var(--card);color:var(--text);border:1px solid var(--line)}
+  h1{font-size:19px;margin:0;flex:1;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+  h1 .mark{width:22px;height:22px;border-radius:6px;background:var(--acc);color:var(--ink);display:grid;place-items:center;font:700 13px var(--mono)}
+  .meta{color:var(--mut);font:500 11px var(--mono);margin:6px 0 2px;letter-spacing:.02em;text-transform:uppercase}
+  button{font:inherit;border:0;border-radius:8px;padding:9px 14px;background:var(--acc);color:var(--ink);font-weight:700;cursor:pointer}
+  button.sec{background:transparent;color:var(--text);border:1px solid var(--line)}
   button:disabled{opacity:.5}
-  nav{display:flex;gap:4px;overflow-x:auto}
-  nav a{padding:10px 12px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap;font-weight:600}
-  nav a.on{color:var(--acc);border-color:var(--acc)}
+  #refresh{font-family:var(--mono);font-size:13px}
+  nav{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;justify-content:space-around;background:rgba(18,18,20,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+  nav a{flex:1;text-align:center;padding:10px 2px;color:var(--mut);text-decoration:none;font-weight:600;font-size:13px;border-radius:10px}
+  nav a.on{color:var(--ink);background:var(--acc)}
   main{padding:12px 14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+  .card{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line);border-radius:6px;padding:12px;margin-bottom:10px}
+  .card:has(.pg){border-left-color:var(--good)}
+  .card:has(.pw){border-left-color:var(--warn)}
   .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .pill{display:inline-block;border-radius:999px;padding:3px 9px;font-size:13px;font-weight:700}
-  .pg{background:rgba(47,191,113,.15);color:var(--good)}
-  .pw{background:rgba(240,180,41,.15);color:var(--warn)}
-  .pl{background:rgba(239,91,91,.15);color:var(--bad)}
-  .big{font-size:17px;font-weight:700}
+  .pill{display:inline-block;border-radius:4px;padding:3px 7px;font:700 12px var(--mono);letter-spacing:.02em}
+  .pg{background:var(--good);color:var(--ink)}
+  .pw{background:rgba(255,181,71,.16);color:var(--warn)}
+  .pl{background:rgba(255,99,99,.16);color:var(--bad)}
+  .big{font-size:17px;font-weight:700;letter-spacing:-.01em}
   .mut{color:var(--mut);font-size:13px}
-  .price{font-weight:700;color:var(--acc)}
-  .lnk{color:var(--acc);font-size:13px;text-decoration:none;font-weight:600}
+  .price{font-family:var(--mono);font-weight:700;color:var(--acc)}
+  .lnk{color:var(--acc);font-size:13px;text-decoration:none;font-weight:700}
   .grow{flex:1}
   table{border-collapse:collapse;width:100%;font-size:13px}
-  th,td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
-  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--card)}
-  td.best{color:var(--good);font-weight:700}
+  th{font:600 11px var(--mono);color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+  th,td{padding:7px;border-bottom:1px dashed var(--line);text-align:center;white-space:nowrap}
+  td{font-family:var(--mono)}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--card);font-family:"Space Grotesk",sans-serif}
+  td.best{color:var(--ink);background:var(--acc);font-weight:700;border-radius:4px}
   .scroll{overflow-x:auto}
   label{display:block;margin:10px 0 4px;font-weight:600}
-  input[type=text],input[type=password],input[type=number],select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0b0e13;color:var(--text);font:inherit}
+  input[type=text],input[type=password],input[type=number],select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#0a0a0b;color:var(--text);font:inherit}
+  input:focus,select:focus{outline:2px solid var(--acc);outline-offset:-1px}
   .chk{display:flex;align-items:center;gap:8px;margin:6px 0;font-weight:400}
-  .chk input{width:18px;height:18px}
+  .chk input{width:18px;height:18px;accent-color:var(--acc)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px}
-  .err{background:rgba(239,91,91,.12);border:1px solid rgba(239,91,91,.4);color:#ffb3b3;border-radius:10px;padding:10px;margin-bottom:10px;font-size:13px}
-  .empty{color:var(--mut);text-align:center;padding:30px 10px}
+  .err{background:rgba(255,99,99,.1);border:1px solid rgba(255,99,99,.4);color:#ffb8b8;border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px}
+  .empty{color:var(--mut);text-align:center;padding:36px 10px}
   .filters{display:flex;gap:8px;margin-bottom:10px}
   .filters select{flex:1}
   .stake td,.stake th{text-align:left}
   .chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0 10px}
-  .chip{flex:0 0 auto;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--mut);font-size:13px;font-weight:600}
-  .chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
-  .fpanel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:10px}
+  .chip{flex:0 0 auto;padding:6px 11px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--mut);font:600 12px var(--mono)}
+  .chip.on{background:var(--text);border-color:var(--text);color:var(--bg)}
+  .fpanel{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:10px}
   .fpanel summary{font-weight:700;cursor:pointer}
   .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
   .fgrid label{margin:8px 0 3px;font-size:13px}
   .fgrid .full{grid-column:1/-1}
   .hide{background:none;border:0;color:var(--mut);font-size:12px;padding:2px 4px;font-weight:600}
-  .sheetbg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:20;display:flex;align-items:flex-end;justify-content:center}
-  .sheet{background:var(--bg);border:1px solid var(--line);border-radius:18px 18px 0 0;width:100%;max-width:640px;max-height:88vh;overflow:auto;padding:14px 14px 30px}
-  .card[data-gk],tr[data-gk]{cursor:pointer;-webkit-tap-highlight-color:rgba(79,140,255,.25)}
-  button.cmp{padding:5px 10px;font-size:12px;border-radius:8px}
-  html,body{touch-action:manipulation}
+  .sheetbg{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+  .sheet{background:var(--bg);border:1px solid var(--line);border-bottom:0;border-radius:14px 14px 0 0;width:100%;max-width:640px;max-height:88vh;overflow:auto;padding:14px 14px calc(30px + env(safe-area-inset-bottom))}
+  .card[data-gk],tr[data-gk]{cursor:pointer;-webkit-tap-highlight-color:rgba(200,244,58,.2)}
+  button.cmp{padding:5px 10px;font-size:12px;border-radius:6px}
   td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad)}
-  tr.pick td{background:rgba(79,140,255,.12)}
-  hr{border:0;border-top:1px solid var(--line);margin:10px 0}
+  tr.pick td{background:rgba(200,244,58,.1)}
+  .sheet th:first-child,.sheet td:first-child{background:var(--bg)}
+  .sheet tr.pick td:first-child{background:#1c2108}
+  hr{border:0;border-top:1px dashed var(--line);margin:10px 0}
 </style>
 </head>
 <body>
 <header>
   <div class="top">
-    <h1>Edge Finder</h1>
+    <h1><span class="mark">E</span>Edge Finder</h1>
     <button id="refresh">Refresh</button>
   </div>
   <div class="meta" id="meta">No data yet. Add your API key in Settings, then tap Refresh.</div>
-  <nav id="tabs">
+  <div class="chips" id="win"></div>
+</header>
+<nav id="tabs">
     <a href="#ev" data-t="ev" class="on">+EV</a>
     <a href="#arbs" data-t="arbs">Arbs</a>
     <a href="#middles" data-t="middles">Middles</a>
     <a href="#odds" data-t="odds">Odds</a>
     <a href="#setup" data-t="setup">Settings</a>
   </nav>
-  <div class="chips" id="win"></div>
-</header>
 <main>
   <div id="fbar"></div>
   <div id="sheet"></div>
@@ -445,7 +457,7 @@ function openDetail(g,name,pick){
     <div class="mut" style="margin:4px 0 10px">${f?`Fair price ${decToAm(1/p)} · ${(p*100).toFixed(1)}% to win · from ${esc(f.src)}`:'Not enough books to set a fair price.'}
       ${P&&avg?` · pays ${pct(((P.eff-1)/avg-1)*100)} more profit than the average book`:''}</div>
     <div class="scroll"><table>
-      <tr><th>Book</th><th>Odds</th><th>EV</th><th>Your edge vs it</th><th>Hold</th><th>Updated</th></tr>
+      <tr><th>Book</th><th>Odds</th><th>EV</th><th>Edge vs</th><th>Hold</th><th>Updated</th></tr>
       ${ordered.map(({b,q})=>{ const ev=p!=null?(p*q.eff-1)*100:null; const vs=P&&b!==pick?((P.eff-1)/(q.eff-1)-1)*100:null; const h=holdPct(g,b);
         return `<tr class="${b===pick?'pick':''}"><td>${esc(bookName(b))}${b===SHARP.key?' <span class="mut">(ref)</span>':''}</td>
           <td>${fmtAm(q.am)}${q.eff!==q.dec?`<div class="mut">${decToAm(q.eff)} after fee</div>`:''}</td>
@@ -453,7 +465,7 @@ function openDetail(g,name,pick){
           <td class="${vs==null?'':vs>=0?'pos':'neg'}">${b===pick?'your pick':vs==null?'–':pct(vs)}</td>
           <td class="mut">${h==null?'–':h.toFixed(1)+'%'}</td><td class="mut">${ageTxt(q)}</td></tr>`;}).join('')}
     </table></div>
-    <div class="mut" style="margin-top:8px">"Your edge vs it" = how much more profit your pick pays than that book on a win. Tap a row to make it your pick.</div>
+    <div class="mut" style="margin-top:8px">"Edge vs" = how much more profit your pick pays than that book on a win. Tap a row to make it your pick.</div>
     ${other.length?`<hr><div class="mut">Other side: ${other.map(n=>{ const best=S.books.map(b=>g.prices[b]&&g.prices[b][n]?{b,q:g.prices[b][n]}:null).filter(Boolean).sort((a,c)=>c.q.eff-a.q.eff)[0];
       return `${esc(n)} best ${best?fmtAm(best.q.am)+' at '+esc(bookName(best.b)):'–'}`;}).join(' · ')}</div>`:''}
     ${P&&P.link?`<div style="margin-top:12px"><a class="lnk" href="${esc(P.link)}" target="_blank" rel="noopener">Open ${esc(bookName(pick))} ›</a></div>`:''}
