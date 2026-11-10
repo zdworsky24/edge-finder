@@ -127,7 +127,27 @@ const BOOKS = [
   {key:'novig',          name:'Novig',      short:'NOV'},
   {key:'kalshi',         name:'Kalshi',     short:'KAL'},
   {key:'polymarket',     name:'Polymarket', short:'PM'},
+  // more US-licensed books
+  {key:'betrivers',      name:'BetRivers',     short:'BR',    grp:'us'},
+  {key:'espnbet',        name:'theScore Bet',  short:'SCR',   grp:'us'},
+  {key:'ballybet',       name:'Bally Bet',     short:'BALY',  grp:'us'},
+  {key:'betparx',        name:'betPARX',       short:'PARX',  grp:'us'},
+  {key:'fliff',          name:'Fliff',         short:'FLF',   grp:'us'},
+  // more exchanges / prediction markets
+  {key:'polymarket_us',  name:'Polymarket US', short:'PMUS',  grp:'ex'},
+  {key:'prophetx',       name:'ProphetX',      short:'PX',    grp:'ex'},
+  {key:'betopenly',      name:'BetOpenly',     short:'OPN',   grp:'ex'},
+  {key:'limitless',      name:'Limitless',     short:'LIM',   grp:'ex'},
+  // offshore: price reference only, not licensed in Illinois
+  {key:'lowvig',         name:'LowVig',        short:'LOWV',  grp:'off'},
+  {key:'betonlineag',    name:'BetOnline',     short:'BOL',   grp:'off'},
+  {key:'bovada',         name:'Bovada',        short:'BOV',   grp:'off'},
+  {key:'betus',          name:'BetUS',         short:'BUS',   grp:'off'},
+  {key:'mybookieag',     name:'MyBookie',      short:'MYB',   grp:'off'},
+  {key:'betanysports',   name:'BetAnything',   short:'BANY',  grp:'off'},
 ];
+const MINE=['draftkings','fanduel','betmgm','williamhill_us','fanatics','hardrockbet','novig','kalshi','polymarket'];
+BOOKS.forEach(b=>b.grp=b.grp||(['novig','kalshi','polymarket'].includes(b.key)?'ex':'us'));
 const SHARP = {key:'pinnacle', name:'Pinnacle', short:'PIN'}; // fair-price reference only
 const SPORTS = [
   {key:'americanfootball_nfl',   name:'NFL'},
@@ -144,13 +164,16 @@ const bookShort = k => (BOOKS.find(b=>b.key===k)||(k===SHARP.key?SHARP:{short:k}
 /* ---------- settings (saved in this browser only) ---------- */
 const DEFAULTS = {
   apiKey:'', sports:['americanfootball_nfl','americanfootball_ncaaf','basketball_nba','basketball_ncaab','icehockey_nhl'],
-  books:BOOKS.map(b=>b.key), markets:['h2h','spreads','totals'],
+  books:MINE.slice(), watch:BOOKS.map(b=>b.key).filter(k=>!MINE.includes(k)), markets:['h2h','spreads','totals'],
   minEV:2, bankroll:100, kellyFrac:0.25, kalshiFee:true, fees:{novig:0,polymarket:0}, includeLive:false,
   autoSec:0, maxAgeMin:15, windowH:0, unit:10, middleMaxLoss:2, alerts:true, hoursPerDay:8
 };
 function load(){ try{ return Object.assign({},DEFAULTS,JSON.parse(localStorage.getItem('edgefinder')||'{}')); }catch(e){ return {...DEFAULTS}; } }
 function save(){ try{ localStorage.setItem('edgefinder',JSON.stringify(S)); }catch(e){} }
 let S = load();
+S.watch=(S.watch||[]).filter(k=>!S.books.includes(k));
+const pullBooks=()=>[...new Set([...S.books,...S.watch,SHARP.key])];
+const isWatch=k=>S.watch.includes(k);
 const FDEF={sport:'all',market:'all',books:[],minEV:1,maxEV:'',minOdds:'',maxOdds:'',q:'',sort:'best',pinOnly:false,minArb:0};
 S.F=Object.assign({},FDEF,S.F||{}); S.hidden=S.hidden||[];
 const activeBooks=()=>S.F.books.length?S.books.filter(b=>S.F.books.includes(b)):S.books;
@@ -297,7 +320,7 @@ async function refresh(){
   const btn=document.getElementById('refresh'), errs=[];
   if(!S.apiKey){ showTab('setup'); setErr(['Add your API key first.']); return; }
   btn.disabled=true; btn.textContent='Loading…';
-  const books=[...S.books,SHARP.key].join(',');   // ≤10 books = billed as 1 region
+  const books=pullBooks().join(',');   // every 10 books = billed as 1 region
   const all=[]; let rem=null,used=null;
   await Promise.all(S.sports.map(async sp=>{
     const url=`https://api.the-odds-api.com/v4/sports/${sp}/odds/?apiKey=${encodeURIComponent(S.apiKey)}&bookmakers=${books}&markets=${S.markets.join(',')}&oddsFormat=american&includeLinks=true`;
@@ -401,7 +424,7 @@ function setupAuto(){
   updateAutoLabel();
 }
 function updateAutoLabel(){ const b=document.getElementById('refresh'); if(b.disabled) return; b.textContent=timer?`Refresh · ${countdown}s`:'Refresh'; }
-const creditsPerRefresh=()=>S.sports.length*S.markets.length;
+const creditsPerRefresh=()=>S.sports.length*S.markets.length*Math.ceil(pullBooks().length/10);
 
 function renderEV(groups){
   const el=document.getElementById('v-ev');
@@ -458,13 +481,14 @@ function bindTaps(){
 }
 function openDetail(g,name,pick){
   const f=fair(g), i=g.names.indexOf(name), p=f?f.probs[i]:null;
-  const rows=[...S.books,SHARP.key].filter(b=>g.prices[b]&&g.prices[b][name]).map(b=>({b,q:g.prices[b][name]}));
-  const bettable=rows.filter(r=>r.b!==SHARP.key).sort((a,c)=>c.q.eff-a.q.eff);
+  const rows=pullBooks().filter(b=>g.prices[b]&&g.prices[b][name]).map(b=>({b,q:g.prices[b][name]}));
+  const bettable=rows.filter(r=>S.books.includes(r.b)).sort((a,c)=>c.q.eff-a.q.eff);
+  const watched=rows.filter(r=>isWatch(r.b)).sort((a,c)=>c.q.eff-a.q.eff);
   if(!pick&&bettable.length) pick=bettable[0].b;
   const P=g.prices[pick]&&g.prices[pick][name];
   const avg=bettable.length?bettable.reduce((a,r)=>a+(r.q.eff-1),0)/bettable.length:null;
   const pct=v=>(v>=0?'+':'')+v.toFixed(1)+'%';
-  const ordered=[...bettable,...rows.filter(r=>r.b===SHARP.key)];
+  const ordered=[...bettable,...watched,...rows.filter(r=>r.b===SHARP.key)];
   const other=g.names.filter(n=>n!==name);
   document.getElementById('sheet').innerHTML=`<div class="sheetbg" id="sbg"><div class="sheet">
     <div class="row"><div class="grow mut">${gameLine(g.ev)}</div><button class="sec" id="sclose">Close</button></div>
@@ -476,7 +500,7 @@ function openDetail(g,name,pick){
     <div class="scroll"><table>
       <tr><th>Book</th><th>Odds</th><th>EV</th><th>Edge vs</th><th>Hold</th><th>Updated</th></tr>
       ${ordered.map(({b,q})=>{ const ev=p!=null?(p*q.eff-1)*100:null; const vs=P&&b!==pick?((P.eff-1)/(q.eff-1)-1)*100:null; const h=holdPct(g,b);
-        return `<tr class="${b===pick?'pick':''}"><td>${esc(bookName(b))}${b===SHARP.key?' <span class="mut">(ref)</span>':''}</td>
+        return `<tr class="${b===pick?'pick':''}"><td>${esc(bookName(b))}${b===SHARP.key?' <span class="mut">(ref)</span>':isWatch(b)?' <span class="mut">(watch)</span>':''}</td>
           <td>${fmtAm(q.am)}${q.eff!==q.dec?`<div class="mut">${decToAm(q.eff)} after fee</div>`:''}</td>
           <td class="${ev==null?'':ev>=0?'pos':'neg'}">${ev==null?'–':pct(ev)}</td>
           <td class="${vs==null?'':vs>=0?'pos':'neg'}">${b===pick?'your pick':vs==null?'–':pct(vs)}</td>
@@ -491,7 +515,7 @@ function openDetail(g,name,pick){
   const close=()=>{ document.getElementById('sheet').innerHTML=''; if(pendingRender){ pendingRender=false; render(); } };
   document.getElementById('sclose').onclick=close;
   document.getElementById('sbg').onclick=e=>{ if(e.target.id==='sbg') close(); };
-  document.querySelectorAll('#sheet tr').forEach((tr,k)=>{ const r=ordered[k-1]; if(r&&r.b!==SHARP.key){ tr.style.cursor='pointer'; tr.onclick=()=>openDetail(g,name,r.b);} });
+  document.querySelectorAll('#sheet tr').forEach((tr,k)=>{ const r=ordered[k-1]; if(r&&S.books.includes(r.b)){ tr.style.cursor='pointer'; tr.onclick=()=>openDetail(g,name,r.b);} });
 }
 
 /* ---------- filter panel ---------- */
@@ -559,15 +583,15 @@ function renderOdds(groups){
   const gs=groups.filter(g=>g.market===oddsFilter.market&&(oddsFilter.sport==='all'||g.ev._sport===oddsFilter.sport))
     .sort((a,b)=>new Date(a.ev.commence_time)-new Date(b.ev.commence_time));
   if(!gs.length) html+=`<div class="empty">No ${oddsFilter.market} lines for this filter.</div>`;
-  const cols=[...S.books,SHARP.key];
+  const cols=pullBooks();
   for(const g of gs){
     const present=cols.filter(b=>g.prices[b]); const f=fair(g);
     html+=`<div class="card"><div class="mut">${gameLine(g.ev)}</div><div style="font-weight:700;margin:4px 0">${esc(g.label)}</div><div class="scroll"><table>
-      <tr><th></th>${present.map(b=>`<th>${bookShort(b)}</th>`).join('')}<th>Fair</th></tr>
+      <tr><th></th>${present.map(b=>`<th style="${S.books.includes(b)?'':'opacity:.55'}">${bookShort(b)}</th>`).join('')}<th>Fair</th></tr>
       ${g.names.map((n,i)=>{
         const best=Math.max(...S.books.map(b=>g.prices[b]&&g.prices[b][n]?g.prices[b][n].eff:0));
         return `<tr data-gk="${esc(gk(g))}" data-n="${esc(n)}" style="cursor:pointer"><td>${esc(n)} ›</td>${present.map(b=>{const q=g.prices[b][n]; if(!q) return '<td class="mut">–</td>';
-          const isBest=b!==SHARP.key&&q.eff===best; return `<td class="${isBest?'best':''}">${fmtAm(q.am)}</td>`;}).join('')}
+          const isBest=S.books.includes(b)&&q.eff===best; return `<td class="${isBest?'best':''}">${fmtAm(q.am)}</td>`;}).join('')}
           <td class="mut">${f?decToAm(1/f.probs[i]):'–'}</td></tr>`;}).join('')}
     </table></div></div>`;
   }
@@ -601,8 +625,14 @@ function renderSetup(){
     <button class="sec" id="notif" style="width:100%">Enable phone/desktop notifications</button>
     <div class="mut" style="margin-top:4px">Auto-refresh pauses while the page is in the background, to save credits.</div>
   </div>
-  <div class="card"><b>Books you can bet</b><div class="grid2">${BOOKS.map(b=>cb('bk',b.key,S.books.includes(b.key),b.name)).join('')}</div>
-    <div class="mut">Pinnacle is always pulled as the sharp "fair price" reference, but never shown as a place to bet.</div></div>
+  <div class="card"><b>Books</b>
+    <div class="mut" style="margin:4px 0 6px"><b>Bet</b> = you have an account; edges are shown there. <b>Watch</b> = prices shown and used for the fair price, but never suggested as a bet. Pinnacle is always pulled as the sharp reference.</div>
+    ${[['us','US sportsbooks'],['ex','Exchanges & prediction markets'],['off','Offshore (reference only, not licensed in Illinois)']].map(([gp,title])=>`
+      <div style="font-weight:700;margin:12px 0 4px">${title}</div>
+      ${BOOKS.filter(b=>b.grp===gp).map(b=>{ const v=S.books.includes(b.key)?'bet':isWatch(b.key)?'watch':'off';
+        return `<div class="row" style="margin:4px 0"><span class="grow">${esc(b.name)}</span><select class="bkmode" data-k="${b.key}" style="width:auto;padding:6px 8px">
+          ${(gp==='off'?[['watch','Watch'],['off','Off']]:[['bet','Bet'],['watch','Watch'],['off','Off']]).map(([o,n])=>`<option value="${o}" ${v===o?'selected':''}>${n}</option>`).join('')}</select></div>`;}).join('')}`).join('')}
+    <div class="mut" id="bkcost" style="margin-top:8px"></div></div>
   <div class="card">
     <label for="mev">Alert me when EV is at least (%)</label><input id="mev" type="number" step="0.5" value="${S.minEV}">
     <label for="br">Bankroll / arb total ($)</label><input id="br" type="number" step="10" value="${S.bankroll}">
@@ -620,7 +650,10 @@ function renderSetup(){
   document.getElementById('saveBtn').onclick=()=>{
     const vals=n=>[...el.querySelectorAll(`input[name=${n}]:checked`)].map(i=>i.value);
     S.apiKey=document.getElementById('k').value.trim();
-    S.sports=vals('sp'); S.markets=vals('mk'); S.books=vals('bk');
+    S.sports=vals('sp'); S.markets=vals('mk');
+    const modes=[...el.querySelectorAll('.bkmode')].map(x=>[x.dataset.k,x.value]);
+    S.books=modes.filter(m=>m[1]==='bet').map(m=>m[0]); S.watch=modes.filter(m=>m[1]==='watch').map(m=>m[0]);
+    S.F.books=S.F.books.filter(b=>S.books.includes(b));
     S.minEV=parseFloat(document.getElementById('mev').value)||0;
     S.bankroll=parseFloat(document.getElementById('br').value)||100;
     S.kellyFrac=parseFloat(document.getElementById('kf').value)||0.25;
@@ -636,6 +669,9 @@ function renderSetup(){
     save(); setupAuto(); if(lastInfo) render(); renderSetup();
     const b=document.getElementById('saveBtn'); b.textContent='Saved ✓'; setTimeout(()=>b.textContent='Save settings',1200);
   };
+  const bkcost=()=>{ const n=new Set([...el.querySelectorAll('.bkmode')].filter(x=>x.value!=='off').map(x=>x.dataset.k)).size+1, r=Math.ceil(n/10);
+    document.getElementById('bkcost').innerHTML=`Pulling <b>${n}</b> books (incl. Pinnacle) → billed as <b>${r}</b> region${r>1?'s':''}: each refresh costs about <b>${S.sports.length*S.markets.length*r}</b> credits. Every 10 books adds another region.`; };
+  el.querySelectorAll('.bkmode').forEach(x=>x.onchange=bkcost); bkcost();
   const burn=()=>{ const a=parseInt(document.getElementById('auto').value)||0, h=parseFloat(document.getElementById('hpd').value)||0;
     const per=creditsPerRefresh(); const el2=document.getElementById('burn');
     if(!a){ el2.textContent=`Manual: ${per} credits per tap.`; return; }
